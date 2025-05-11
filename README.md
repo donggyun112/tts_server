@@ -1,1230 +1,1401 @@
-# Wiki Documentation for https://github.com/donggyun112/PipeChat_server
+# Wiki Documentation for https://github.com/donggyun112/tts_server
 
-Generated on: 2025-05-11 13:33:51
+Generated on: 2025-05-11 13:46:51
 
 ## Table of Contents
 
-- [프로젝트 개요 및 아키텍처](#page-1)
-- [핵심 파이프라인 및 데이터 흐름](#page-2)
-- [음성 인식 및 처리 (STT & VAD)](#page-3)
-- [음성 합성 및 아바타 연동 (TTS & Simli)](#page-4)
-- [WebRTC 통신 및 클라이언트 인터페이스](#page-5)
-- [디버깅 및 로깅](#page-6)
+- [프로젝트 개요](#page-1)
+- [서버 아키텍처](#page-2)
+- [TTS 모델 연동](#page-3)
+- [API 및 사용법](#page-4)
+- [MeloTTS 상세 가이드](#page-5)
+- [설치 및 설정](#page-6)
 
 <a id='page-1'></a>
 
-## 프로젝트 개요 및 아키텍처
+## 프로젝트 개요
 
 ### Related Files
 
 - `README.md`
-- `server.py`
-- `run_bot.py`
+- `tts_server.py`
+- `MeloTTS/README.md`
 
 ### Related Pages
 
-Related topics: [핵심 파이프라인 및 데이터 흐름](#page-2), [WebRTC 통신 및 클라이언트 인터페이스](#page-5)
+Related topics: [서버 아키텍처](#page-2), [TTS 모델 연동](#page-3), [설치 및 설정](#page-6)
 
-이 문서는 PipeChat_server 프로젝트의 전반적인 개요와 시스템 아키텍처를 설명합니다. 프로젝트의 목적, 주요 기능, 핵심 구성 요소들의 역할 및 상호작용 방식을 이해하는 데 도움을 줄 것입니다.
+이 문서는 `donggyun112/tts_server` GitHub 저장소의 프로젝트 개요를 설명합니다. 프로젝트의 주요 목적, 핵심 기능, 구성 요소 및 이들 간의 상호작용 방식을 다룹니다.
 
-## 1. 프로젝트 목표 및 주요 기능
+## 1. 프로젝트 소개
 
-PipeChat_server는 실시간 음성 및 비디오 통신을 기반으로 하는 AI 챗봇 서버를 구축하는 것을 목표로 합니다. 주요 기능은 다음과 같습니다:
+`tts_server`는 다양한 텍스트 음성 변환(TTS) 엔진을 통합적으로 관리하고, ZeroMQ(ZMQ)를 통해 클라이언트에게 TTS 서비스를 제공하는 Python 기반 서버 애플리케이션입니다. 이 프로젝트는 특히 [MeloTTS](https://github.com/myshell-ai/MeloTTS)와 같은 고품질 다국어 TTS 모델을 백엔드에서 손쉽게 활용하여 스트리밍 음성 서비스를 구축하는 것을 목표로 합니다.
 
-*   **실시간 양방향 통신**: WebRTC를 사용하여 클라이언트(웹 브라우저)와 서버 간에 오디오 및 비디오 스트림을 실시간으로 주고받습니다.
-*   **음성 인식 (STT)**: 사용자의 음성을 텍스트로 변환합니다. (예: Whisper STT)
-*   **대규모 언어 모델 (LLM) 연동**: 변환된 텍스트를 LLM(예: Google Gemini)에 전달하여 응답을 생성합니다.
-*   **음성 합성 (TTS)**: LLM이 생성한 텍스트 응답을 자연스러운 음성으로 변환합니다.
-*   **아바타 비디오 생성**: 생성된 음성에 맞춰 동기화된 아바타 비디오를 생성합니다. (예: Simli)
-*   **파이프라인 기반 처리**: STT, LLM, TTS, 비디오 생성 등의 모듈을 PipeCat 프레임워크를 사용하여 파이프라인으로 구성하여 효율적으로 데이터를 처리합니다.
+## 2. 목적 및 주요 기능
 
-## 2. 핵심 구성 요소
+*   **통합 TTS 서비스 제공**: MeloTTS, KokoroTTS 등 여러 TTS 모델을 단일 인터페이스로 통합하여 제공합니다. (`tts_server.py`)
+*   **비동기 처리**: 여러 클라이언트의 요청을 동시에 효율적으로 처리하기 위해 `ThreadPoolExecutor`를 활용한 비동기 방식을 사용합니다.
+*   **실시간 스트리밍 지원**: 생성된 음성 데이터를 실시간으로 클라이언트에 스트리밍하여 사용자 경험을 향상시키고 응답 시간을 최소화합니다.
+*   **유연한 TTS 설정**: 클라이언트는 요청 시 음성(화자), 속도, 목표 샘플링 속도 등 다양한 TTS 파라미터를 지정할 수 있습니다.
+*   **인사말 기능**: 마지막 요청 이후 일정 시간이 경과하면, 다음 요청 시 자동으로 준비된 인사말 음성을 먼저 재생하여 자연스러운 상호작용을 유도합니다.
+*   **확장 용이성**: 새로운 TTS 모델 어댑터를 추가하여 기능을 확장하기 용이한 추상화된 구조(`TTSModelAdapter`)를 가지고 있습니다.
 
-프로젝트의 주요 로직은 다음 파일들에 의해 구현됩니다.
+## 3. 핵심 구성 요소
 
-### 2.1. `server.py` - 웹 서버 및 WebRTC 관리
+### 3.1. `tts_server.py`: 통합 TTS 서버
 
-`server.py`는 FastAPI를 사용하여 웹 서버를 구축하고, 클라이언트와의 WebRTC 연결을 관리합니다.
+`tts_server.py`는 프로젝트의 핵심 로직을 담고 있는 메인 서버 스크립트입니다. ZMQ 소켓을 통해 클라이언트의 명령을 수신하고, TTS 작업을 관리하며, 생성된 오디오 데이터를 클라이언트로 전송하는 역할을 합니다.
 
-*   **FastAPI 애플리케이션 설정**: HTTP 요청을 처리하고 WebRTC 시그널링을 위한 엔드포인트를 제공합니다.
-*   **WebRTC 연결 관리**: 클라이언트로부터 SDP(Session Description Protocol) offer를 받아 WebRTC 연결을 수립하고, ICE(Interactive Connectivity Establishment) 후보를 교환합니다.
-*   **봇 로직 연동**: 성공적인 WebRTC 연결 후, `run_bot.py`의 봇 실행 로직을 호출하여 실제 AI 챗봇 기능을 활성화합니다.
-*   **정적 파일 제공**: 클라이언트 UI를 위한 HTML, CSS, JavaScript 파일을 제공합니다.
+*   **주요 기능**:
+    *   **명령 수신 (ZMQ REP)**: `tcp://*:5555` 포트에서 클라이언트로부터 `generate` (음성 생성), `interrupt` (작업 중단), `list_voices` (사용 가능 화자 목록) 등의 JSON 형식 명령을 수신합니다.
+    *   **오디오 전송 (ZMQ PUSH)**: `tcp://*:5556` 포트를 통해 생성된 오디오 데이터를 메타데이터와 함께 청크(chunk) 단위로 클라이언트에 푸시(PUSH)합니다.
+    *   **모델 어댑터 연동**: `MeloTTSAdapter` 또는 `KokoroTTSAdapter`와 같은 모델 어댑터를 통해 실제 음성 합성을 수행합니다.
+    *   **동시 요청 처리**: `ThreadPoolExecutor`를 사용하여 여러 TTS 요청을 병렬로 처리합니다.
+    *   **작업 관리**: 진행 중인 TTS 작업을 추적하고, 클라이언트의 중단 요청에 따라 작업을 취소할 수 있습니다.
 
-<p>Sources: <a href="https://github.com/donggyun112/PipeChat_server/blob/main/server.py" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">server.py</a></p>
+*   **코드 예시: 서버 초기화 및 ZMQ 소켓 바인딩**
+    ```python
+    # File: tts_server.py
+    class UnifiedTTSServer:
+        def __init__(self, *, model_adapter: TTSModelAdapter, max_workers: int = 4):
+            self.model_adapter = model_adapter
+            self.DEFAULT_SR = model_adapter.default_sample_rate
+            self.DEFAULT_CHUNK_SAMPLES = 1024
+            
+            self.ctx = zmq.Context()
+            self.cmd_sock = self.ctx.socket(zmq.REP)
+            self.cmd_sock.bind("tcp://*:5555")
+            self.audio_sock = self.ctx.socket(zmq.PUSH)
+            self.audio_sock.bind("tcp://*:5556")
+            self.poller = zmq.Poller()
+            self.poller.register(self.cmd_sock, zmq.POLLIN)
+            
+            self.executor = ThreadPoolExecutor(max_workers=max_workers)
+            self.jobs: Dict[str, Dict[str, Any]] = {}
+            # ... (생략) ...
+    ```
 
-```python
-# server.py FastAPI 앱 생성 및 엔드포인트 예시
-from fastapi import FastAPI, Request, BackgroundTasks
-from fastapi.responses import RedirectResponse
-from fastapi.staticfiles import StaticFiles
-from pipecat.transports.network.small_webrtc import SmallWebRTCTransport, SmallWebRTCConnection
-# ... (다른 import 문들) ...
+*   **`tts_server.py` 내부 요청 처리 흐름도:**
+    ```mermaid
+    graph TD
+        Client([클라이언트]) -->|1. TTS 요청 (JSON, ZMQ REQ)| CmdSock[tts_server: cmd_sock (REP)]
+        CmdSock -->|2. 요청 분석| ProcessCmd[tts_server: _process_cmd()]
+        ProcessCmd -->|3. 작업 스레드에 할당| Executor[ThreadPoolExecutor]
+        Executor -->|4. 작업 실행| Worker[tts_server: _worker()]
+        Worker -->|5. 인사말 생성 (필요시)| Greeting[_get_prepared_greeting_xx()]
+        Worker -->|6. TTS 모델 어댑터 호출| ModelAdapter[TTSModelAdapter: generate_audio()]
+        ModelAdapter -->|7. 음성 데이터 반환 (numpy.ndarray)| Worker
+        Worker -->|8. 오디오 변환/청킹 후 큐에 추가| AudioQueue[queue.Queue]
+        Sender[tts_server: _sender()] -->|9. 큐에서 청크 가져오기| AudioQueue
+        Sender -->|10. 오디오 데이터 전송 (ZMQ PUSH)| AudioSock[tts_server: audio_sock (PUSH)]
+        AudioSock -->|11. 오디오 스트림| Client
+    ```
+<p>Sources: <a href="https://github.com/donggyun112/tts_server/blob/main/tts_server.py" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">tts_server.py</a></p>
 
-# FastAPI 앱 생성
-app = FastAPI(lifespan=lifespan)
+### 3.2. `MeloTTS/README.md`: MeloTTS 라이브러리
 
-# CORS 설정
-app.add_middleware(
-    CORSMiddleware,
-    # ... (설정) ...
-)
+MeloTTS는 MIT와 MyShell.ai에서 개발한 고품질 다국어 텍스트 음성 변환 라이브러리입니다. `tts_server`는 `MeloTTSAdapter`를 통해 이 라이브러리를 주요 TTS 엔진 중 하나로 사용하며, 다양한 언어와 음성 스타일을 지원합니다.
 
-# 정적 파일 제공
-app.mount("/static", StaticFiles(directory="static"), name="static")
+*   **주요 특징**:
+    *   **다국어 및 다중 악센트 지원**: 한국어(KR), 영어(EN-US, EN-BR, EN-AU 등), 스페인어(ES), 프랑스어(FR), 중국어(ZH), 일본어(JP) 등 다양한 언어와 영어의 경우 여러 악센트를 지원합니다.
+    *   **고품질 음성**: 자연스럽고 명료한 고품질의 음성을 생성합니다.
+    *   **실시간 추론**: CPU 환경에서도 실시간 추론이 가능할 정도로 빠른 성능을 제공합니다.
+    *   **다양한 사용 인터페이스**: Python API, 명령줄 인터페이스(CLI), 웹 UI(Gradio 기반)를 제공하여 사용 편의성을 높입니다.
 
-# 활성 WebRTC 연결 저장소
-pcs: Dict[str, Tuple[SmallWebRTCConnection, SmallWebRTCTransport, Optional[PipelineTask]]] = {}
+*   **코드 예시: MeloTTS Python API를 사용한 한국어 음성 합성**
+    ```python
+    # MeloTTS/docs/install.md (Python API 예시)
+    from melo.api import TTS
 
-@app.post("/offer")
-async def offer_handler(request: Request, background_tasks: BackgroundTasks):
-    body = await request.json()
-    # ... (WebRTC offer 처리 로직) ...
-    # transport = SmallWebRTCTransport(...)
-    # connection = SmallWebRTCConnection(...)
-    # pcs[connection.pc_id] = (connection, transport, None)
-    # background_tasks.add_task(run_bot, connection, transport, pcs) # run_bot.py 호출
-    # return {"sdp": connection.localDescription.sdp, "type": connection.localDescription.type}
-```
+    # 속도 조절 가능
+    speed = 1.0
+    # 'auto'는 사용 가능한 경우 GPU를 자동 사용, 'cpu', 'cuda' 등으로 수동 설정 가능
+    device = 'auto' 
 
-### 2.2. `run_bot.py` - AI 챗봇 파이프라인 정의
+    text = "안녕하세요! 오늘은 날씨가 정말 좋네요."
+    # 한국어 모델 로드
+    model = TTS(language='KR', device=device)
+    speaker_ids = model.hps.data.spk2id # 사용 가능한 화자 ID 딕셔너리
 
-`run_bot.py`는 PipeCat 프레임워크를 사용하여 AI 챗봇의 핵심 처리 파이프라인을 정의하고 실행합니다.
+    output_path = 'kr_example.wav'
+    # 텍스트를 음성으로 변환하여 파일로 저장
+    model.tts_to_file(text, speaker_ids['KR'], output_path, speed=speed)
+    ```
+<p>Sources: <a href="https://github.com/donggyun112/tts_server/blob/main/MeloTTS/README.md" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">MeloTTS/README.md</a>, <a href="https://github.com/donggyun112/tts_server/blob/main/MeloTTS/docs/install.md" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">MeloTTS/docs/install.md</a></p>
 
-*   **서비스 초기화**: STT, LLM, TTS, Simli 비디오 서비스 등 필요한 AI 모듈들을 초기화합니다.
-*   **PipeCat 파이프라인 구성**: 입력 오디오 처리부터 최종 오디오/비디오 출력까지의 과정을 정의합니다.
-    *   `transport.input()`: WebRTC로부터 오디오/비디오 입력
-    *   `RTVIProcessor`: 실시간 음성/영상 상호작용 처리
-    *   `WhisperSTTService`: 음성-텍스트 변환
-    *   `OpenAILLMContextAggregator` 및 `GoogleLLMService`: LLM을 통한 대화 처리
-    *   `TTSPipecService`: 텍스트-음성 변환
-    *   `SimliVideoService`: 음성 동기화 비디오 생성
-    *   `transport.output()`: WebRTC로 오디오/비디오 출력
-*   **이벤트 처리**: 클라이언트 연결, 연결 해제 등의 WebRTC 전송 계층 이벤트를 처리합니다.
-*   **LLM 기능 확장**: `get_current_weather`와 같은 사용자 정의 함수를 LLM에 등록하여 외부 API와 연동합니다.
+## 4. 전체 아키텍처 및 통합
 
-<p>Sources: <a href="https://github.com/donggyun112/PipeChat_server/blob/main/run_bot.py" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">run_bot.py</a></p>
+`tts_server`는 클라이언트-서버 모델을 기반으로 작동합니다. 클라이언트는 ZMQ를 통해 `tts_server.py`에 음성 합성을 요청합니다. `tts_server.py`는 이 요청을 받아 적절한 TTS 모델 어댑터(예: `MeloTTSAdapter`)를 선택하고, 해당 어댑터는 실제 TTS 엔진(예: MeloTTS 라이브러리)을 사용하여 음성을 생성합니다. 생성된 음성 데이터는 다시 서버를 통해 클라이언트로 스트리밍됩니다.
 
-```python
-# run_bot.py 파이프라인 정의 예시
-from pipecat.pipeline.pipeline import Pipeline
-from pipecat.services.google.llm import GoogleLLMService
-from stt.whisper_stt_service import WhisperSTTService
-from tts.tts_service import TTSPipecService
-from simli import SimliVideoService
-# ... (다른 import 문들) ...
+*   **컴포넌트 간 상호작용 순서도:**
+    ```mermaid
+    sequenceDiagram
+        participant C as 클라이언트
+        participant S as UnifiedTTSServer (tts_server.py)
+        participant MA as TTSModelAdapter (예: MeloTTSAdapter)
+        participant ME as TTS Engine (예: MeloTTS 라이브러리)
 
-async def run_bot(connection: SmallWebRTCConnection, transport: SmallWebRTCTransport, pcs):
-    # ... (서비스 초기화: llm, tts, simli, stt 등) ...
+        C->>S: TTS 요청 (JSON: generate 커맨드, 텍스트, 설정)
+        activate S
+        S->>S: 작업 ID 생성, 요청 유효성 검사
+        S->>MA: 음성 생성 요청 (텍스트, 화자, 속도 등)
+        activate MA
+        MA->>ME: TTS 처리 요청 (내부 API 호출)
+        activate ME
+        ME-->>MA: 생성된 오디오 데이터 (raw, 예: numpy array)
+        deactivate ME
+        MA-->>S: 오디오 데이터 반환
+        deactivate MA
+        S->>S: 오디오 데이터 처리 (int16 변환, 청킹)
+        loop 오디오 청크 전송
+            S-->>C: 오디오 데이터 청크 (ZMQ PUSH, 스트리밍)
+        end
+        S-->>C: 종료 메시지 (예: "completed" 또는 "error")
+        deactivate S
+    ```
+    이러한 구조를 통해 `tts_server`는 다양한 TTS 엔진을 유연하게 통합하고, 클라이언트에게 일관된 인터페이스로 TTS 서비스를 제공할 수 있습니다.
 
-    pipeline = Pipeline([
-        transport.input(),
-        rtvi,  # RTVIProcessor
-        stt,   # WhisperSTTService
-        agg.user(), # OpenAILLMContextAggregator (user input)
-        llm,   # GoogleLLMService
-        tts,   # TTSPipecService
-        simli, # SimliVideoService
-        transport.output(),
-        agg.assistant() # OpenAILLMContextAggregator (assistant response)
-    ])
+## 5. `README.md` (루트 저장소)
 
-    pipeline_task = PipelineTask(pipeline, params=PipelineParams(...))
-    # ... (pipeline_task 관리 및 실행) ...
-```
+루트 저장소의 `README.md` 파일은 `tts_server` 프로젝트의 전반적인 소개, 설치 방법, 실행 방법, 그리고 기본적인 사용 예시를 제공하는 역할을 합니다. (주: 현재 분석 컨텍스트에 해당 파일의 구체적인 내용이 없어 일반적인 역할을 기술합니다.)
 
-### 2.3. `README.md` - 프로젝트 소개 및 설정
-
-`README.md` 파일은 프로젝트의 최상위 레벨에 위치하며, 다음과 같은 정보를 포함하는 것이 일반적입니다:
-
-*   프로젝트의 목적 및 기능에 대한 간략한 설명
-*   프로젝트 실행을 위한 사전 요구사항 (예: Python 버전, 필요한 라이브러리)
-*   설치 및 실행 방법
-*   환경 변수 설정 가이드 (예: API 키)
-*   프로젝트 구조에 대한 간략한 안내
-
-<p>Sources: <a href="https://github.com/donggyun112/PipeChat_server/blob/main/README.md" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">README.md</a></p>
-
-## 3. 아키텍처 다이어그램
-
-다음은 클라이언트와 서버 간의 상호작용 및 서버 내부의 데이터 처리 흐름을 보여주는 시퀀스 다이어그램입니다.
-
-```mermaid
-sequenceDiagram
-    participant Client as 클라이언트 (웹)
-    participant Server as FastAPI 서버 (server.py)
-    participant BotLogic as 봇 로직 (run_bot.py)
-    participant STT as STT 서비스
-    participant LLM as LLM 서비스
-    participant TTS as TTS 서비스
-    participant Video as Simli 비디오 서비스
-
-    Client->>Server: WebRTC 연결 요청 (SDP Offer)
-    Server->>BotLogic: run_bot() 호출 (백그라운드 태스크)
-    activate BotLogic
-    Note over BotLogic: PipeCat 파이프라인 생성 및 초기화
-    BotLogic-->>Server: PipelineTask 생성 및 pcs에 저장
-    Server-->>Client: WebRTC 연결 응답 (SDP Answer)
-
-    Client->>Server: 오디오 스트림 (사용자 음성)
-    Server->>BotLogic: 오디오 프레임 전달 (Transport Input)
-    BotLogic->>STT: 음성 인식 요청
-    activate STT
-    STT-->>BotLogic: 변환된 텍스트
-    deactivate STT
-
-    BotLogic->>LLM: 사용자 텍스트 + 대화 컨텍스트 전달
-    activate LLM
-    LLM-->>BotLogic: LLM 응답 텍스트
-    deactivate LLM
-
-    BotLogic->>TTS: TTS 요청 (LLM 응답 텍스트)
-    activate TTS
-    TTS-->>BotLogic: 생성된 음성 오디오 프레임
-    deactivate TTS
-
-    BotLogic->>Video: 비디오 생성 요청 (음성 연동)
-    activate Video
-    Video-->>BotLogic: 생성된 비디오 프레임
-    deactivate Video
-
-    BotLogic->>Server: 봇 오디오/비디오 프레임 전달 (Transport Output)
-    Server->>Client: 오디오/비디오 스트림 (봇 응답)
-    deactivate BotLogic
-```
-
-## 4. 구성 요소 통합 방식
-
-1.  **클라이언트 연결**: 사용자가 웹 클라이언트 (`static/index.html`)를 통해 "연결 시작" 버튼을 누르면, 클라이언트는 SDP offer를 생성하여 `server.py`의 `/offer` 엔드포인트로 전송합니다.
-2.  **WebRTC 핸드셰이크**: `server.py`는 이 offer를 받아 WebRTC 연결 설정을 시작하고, 자체 SDP answer를 생성하여 클라이언트에게 응답합니다. 이 과정에서 `SmallWebRTCTransport`와 `SmallWebRTCConnection` 객체가 생성됩니다.
-3.  **봇 로직 실행**: WebRTC 연결 설정 과정에서 `server.py`는 `background_tasks.add_task(run_bot, connection, transport, pcs)`를 통해 `run_bot.py`의 `run_bot` 함수를 비동기적으로 호출합니다. 이때, 생성된 `connection`과 `transport` 객체, 그리고 활성 연결을 관리하는 `pcs` 딕셔너리가 인자로 전달됩니다.
-4.  **파이프라인 가동**: `run_bot` 함수 내에서는 STT, LLM, TTS, Simli 비디오 서비스를 포함하는 PipeCat 파이프라인을 구성하고 `PipelineTask`로 만들어 실행합니다. 이 파이프라인은 `transport.input()`을 통해 클라이언트로부터 오디오/비디오 데이터를 수신하고, 처리 결과를 `transport.output()`을 통해 클라이언트로 전송합니다.
-5.  **데이터 흐름**:
-    *   클라이언트의 음성은 WebRTC를 통해 `transport.input()`으로 들어와 STT 서비스에서 텍스트로 변환됩니다.
-    *   변환된 텍스트는 LLM 서비스로 전달되어 응답 텍스트를 생성합니다.
-    *   LLM 응답은 TTS 서비스를 통해 음성 오디오로, Simli 서비스를 통해 아바타 비디오로 변환됩니다.
-    *   최종 생성된 오디오와 비디오는 `transport.output()`을 통해 WebRTC 연결을 거쳐 클라이언트로 스트리밍되어 사용자에게 보여집니다.
-6.  **상태 관리**: `pcs` 딕셔너리는 `server.py`와 `run_bot.py` 간에 공유되어, 특정 WebRTC 연결(`pc_id` 기준)에 해당하는 `PipelineTask`를 관리하고, 연결 종료 시 관련 리소스를 정리하는 데 사용됩니다.
-
-이러한 방식으로 `server.py`는 네트워크 연결 및 시그널링을 담당하고, `run_bot.py`는 실제 AI 기반의 상호작용 로직을 PipeCat 파이프라인을 통해 처리하여, 실시간 음성/영상 챗봇 기능을 구현합니다.
+일반적으로 이 파일에는 다음과 같은 정보가 포함될 것으로 예상됩니다:
+*   프로젝트의 목적 및 주요 기능 요약.
+*   프로젝트 실행에 필요한 사전 요구사항 및 의존성 설치 안내 (예: Python 버전, ZMQ, 특정 TTS 라이브러리 등).
+*   서버 실행 명령어 예시 (예: `python tts_server.py --model melo --device cpu`).
+*   지원하는 TTS 모델 및 관련 설정 옵션에 대한 설명.
+*   간단한 클라이언트 연동 예시 코드 또는 테스트 방법 안내.
+<p>Sources: <a href="https://github.com/donggyun112/tts_server/blob/main/README.md" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">README.md</a></p>
 
 ---
 
 <a id='page-2'></a>
 
-## 핵심 파이프라인 및 데이터 흐름
+## 서버 아키텍처
 
 ### Related Files
 
-- `run_bot.py`
+- `tts_server.py`
 
 ### Related Pages
 
-Related topics: [프로젝트 개요 및 아키텍처](#page-1), [음성 인식 및 처리 (STT & VAD)](#page-3), [음성 합성 및 아바타 연동 (TTS & Simli)](#page-4)
+Related topics: [프로젝트 개요](#page-1), [API 및 사용법](#page-4)
 
-## 핵심 파이프라인 및 데이터 흐름: `run_bot.py`
+# 서버 아키텍처
 
-### 개요
-`run_bot.py` 파일은 PipeChat 서버의 핵심 로직 중 하나로, 새로운 클라이언트 WebRTC 연결이 수립될 때마다 호출되어 해당 연결에 대한 실시간 음성/영상 챗봇 파이프라인을 설정하고 실행하는 역할을 합니다. 이 파이프라인은 사용자의 음성 입력을 받아 텍스트로 변환(STT), 대규모 언어 모델(LLM)을 통해 응답 생성, 생성된 텍스트를 음성으로 변환(TTS)하고, 아바타 영상을 생성(Simli)하여 다시 클라이언트에게 전송하는 일련의 과정을 처리합니다.
+## 소개
 
-### 주요 기능 및 목적
-*   **실시간 양방향 통신 파이프라인 구축**: WebRTC를 통해 클라이언트와 서버 간의 실시간 오디오 및 비디오 스트리밍을 처리하는 파이프라인을 동적으로 생성하고 관리합니다.
-*   **AI 서비스 통합**: 다음과 같은 다양한 AI 기반 서비스를 통합하여 지능적인 대화형 에이전트를 구현합니다.
-    *   **STT (Speech-to-Text)**: 사용자 음성을 텍스트로 변환 (WhisperSTTService 사용).
-    *   **LLM (Large Language Model)**: 변환된 텍스트를 기반으로 사용자 의도를 파악하고 적절한 응답 생성 (GoogleLLMService 사용).
-    *   **TTS (Text-to-Speech)**: LLM이 생성한 텍스트 응답을 자연스러운 음성으로 변환 (TTSPipecService 사용).
-    *   **Simli (Avatar Video Service)**: TTS 음성에 맞춰 아바타의 입 모양과 표정을 동기화하여 영상 생성 (SimliVideoService 사용).
-*   **컨텍스트 관리 및 기능 확장**: `OpenAILLMContext`를 사용하여 대화의 맥락을 유지하고, `ToolsSchema`를 통해 날씨 조회와 같은 외부 기능을 LLM과 연동합니다.
-*   **이벤트 기반 처리**: 클라이언트 연결, 연결 해제, 메시지 수신 등 다양한 이벤트를 비동기적으로 처리하여 효율적인 자원 사용과 응답성을 보장합니다.
-*   **인터럽트 및 동시성 관리**: 사용자의 발화 시작 시 기존 봇의 응답을 중단시키는 인터럽트 기능을 지원하며, `asyncio`를 통해 다수의 클라이언트 연결을 동시에 처리합니다.
+서버 아키텍처는 TTS (Text-to-Speech) 서버가 클라이언트의 요청을 처리하고, TTS 모델을 사용하여 음성을 생성하며, 생성된 오디오를 클라이언트에게 스트리밍하는 전체적인 구조와 흐름을 의미합니다. `tts_server.py` 파일은 이러한 기능을 수행하는 핵심 로직을 담고 있으며, 다양한 TTS 모델을 통합적으로 지원하도록 설계되었습니다.
 
-### 파이프라인 구성 요소
-`run_bot` 함수 내에서 정의되는 파이프라인은 다음과 같은 주요 구성 요소(서비스 및 프로세서)들로 이루어집니다:
+## 목적 및 기능
 
-1.  `transport.input()`: WebRTC로부터 들어오는 클라이언트의 오디오/비디오 프레임을 파이프라인으로 전달합니다.
-2.  `rtvi (RTVIProcessor)`: 실시간 음성 인텔리전스(Real-Time Voice Intelligence) 처리를 담당하며, VAD(Voice Activity Detection), 사용자 발화 시작/종료 이벤트 등을 관리합니다.
-3.  `stt (WhisperSTTService)`: 입력된 오디오를 텍스트로 변환합니다.
-4.  `agg.user() (OpenAILLMContextAggregator)`: STT 결과를 사용자 메시지로 LLM 컨텍스트에 추가합니다.
-5.  `llm (GoogleLLMService)`: 현재 대화 컨텍스트와 사용자 입력을 바탕으로 응답 텍스트를 생성합니다. 필요시 등록된 도구(예: 날씨 조회)를 호출합니다.
-6.  `tts (TTSPipecService)`: LLM이 생성한 텍스트를 음성 오디오로 변환합니다.
-7.  `simli (SimliVideoService)`: TTS 음성에 맞춰 아바타 영상을 생성합니다.
-8.  `transport.output()`: 생성된 TTS 오디오와 Simli 아바타 영상을 WebRTC를 통해 클라이언트로 전송합니다.
-9.  `agg.assistant() (OpenAILLMContextAggregator)`: LLM의 응답을 어시스턴트 메시지로 LLM 컨텍스트에 추가합니다.
+`tts_server.py`의 `UnifiedTTSServer` 클래스는 다음과 같은 주요 목적과 기능을 가집니다:
 
-### 데이터 흐름도
+*   **통합 TTS 인터페이스 제공**: MeloTTS, KokoroTTS 등 다양한 TTS 모델 어댑터를 통해 일관된 방식으로 음성 합성을 요청하고 결과를 받을 수 있도록 합니다.
+*   **비동기 요청 처리**: `ThreadPoolExecutor`를 사용하여 여러 클라이언트의 음성 합성 요청을 동시에 효율적으로 처리합니다.
+*   **ZMQ 기반 통신**:
+    *   명령어 채널 (`tcp://*:5555`, `REP` 소켓): 클라이언트로부터 TTS 생성, 중단, 음성 목록 조회 등의 명령을 JSON 형식으로 수신하고 응답합니다.
+    *   오디오 스트리밍 채널 (`tcp://*:5556`, `PUSH` 소켓): 생성된 오디오 데이터를 청크 단위로 클라이언트에게 푸시합니다.
+*   **작업 관리**: 각 TTS 요청을 '작업(job)'으로 관리하며, 작업 ID를 통해 특정 작업을 중단할 수 있는 기능을 제공합니다.
+*   **인사말 기능**: 일정 시간 동안 요청이 없다가 새로운 요청이 오면, 설정된 언어(한국어 또는 영어)에 따라 준비된 인사말 오디오를 먼저 전송합니다.
+*   **실시간 스트리밍**: 생성된 오디오를 작은 청크로 나누어 실시간으로 스트리밍함으로써 사용자가 빠르게 음성을 들을 수 있도록 합니다.
+*   **모델 관리**: TTS 모델의 초기화, 워밍업, 사용 가능한 음성 목록 제공 등의 기능을 수행합니다.
 
-다음은 `run_bot.py`에서 구성되는 파이프라인의 주요 데이터 흐름을 나타낸 다이어그램입니다.
+## 주요 구성 요소 및 흐름
+
+### 1. 초기화 및 서버 시작
+
+서버가 시작되면 `UnifiedTTSServer` 인스턴스가 생성되고, `initialize()` 메서드를 통해 선택된 TTS 모델 어댑터(`MeloTTSAdapter` 또는 `KokoroTTSAdapter`)를 초기화하고 워밍업합니다.
+
+```python
+# tts_server.py
+class UnifiedTTSServer:
+    def __init__(self, *, model_adapter: TTSModelAdapter, max_workers: int = 4):
+        # 모델 어댑터 설정
+        self.model_adapter = model_adapter
+        
+        # ZMQ 소켓 설정
+        self.ctx = zmq.Context()
+        self.cmd_sock = self.ctx.socket(zmq.REP)
+        self.cmd_sock.bind("tcp://*:5555") # 명령어 수신
+        self.audio_sock = self.ctx.socket(zmq.PUSH)
+        self.audio_sock.bind("tcp://*:5556") # 오디오 전송
+        self.poller = zmq.Poller()
+        self.poller.register(self.cmd_sock, zmq.POLLIN)
+        
+        # 스레드풀 설정
+        self.executor = ThreadPoolExecutor(max_workers=max_workers)
+        # ... (생략) ...
+
+    def start(self):
+        if not self.initialize():
+            logger.error("[SERVER] Failed to initialize server. Exiting.")
+            return
+            
+        logger.info(f"[SERVER] {self.model_adapter.model_name} server started (sample_rate={self.DEFAULT_SR}Hz)")
+        
+        try:
+            while not self.stop_flag.is_set():
+                # 소켓 폴링을 통해 명령어 수신 대기
+                if dict(self.poller.poll(1000)).get(self.cmd_sock):
+                    msg = self.cmd_sock.recv_json()
+                    self._process_cmd(msg) # 명령어 처리
+        # ... (생략) ...
+```
+
+### 2. 명령어 처리 (`_process_cmd`)
+
+클라이언트로부터 명령을 수신하면 `_process_cmd` 메서드가 호출됩니다. 주요 명령어는 다음과 같습니다.
+
+*   **`generate`**: 음성 합성을 요청합니다.
+    *   고유한 작업 ID(`jid`)를 생성하고 클라이언트에게 작업 시작을 알립니다.
+    *   오디오 청크를 담을 `queue.Queue`와 작업 취소를 위한 `threading.Event`를 생성합니다.
+    *   `greeting_timeout`을 확인하여 인사말 재생 여부를 결정합니다.
+    *   별도의 스레드에서 `_sender` 함수를 실행하여 오디오 스트리밍을 준비합니다.
+    *   `ThreadPoolExecutor`에 `_worker` 함수를 작업으로 제출하여 실제 음성 합성을 수행합니다.
+
+    ```python
+    # tts_server.py
+    def _process_cmd(self, msg: Dict[str, Any]):
+        cmd = msg.get("command")
+        jid = msg.get("job_id")
+        
+        if cmd == "generate":
+            self.cmd_sock.send_json({"status": "started", "job_id": jid})
+            q = queue.Queue()
+            cancel = threading.Event()
+            
+            current_time = time.time()
+            should_play_greeting = False
+            with self.lock: # 동기화 보장
+                if current_time - self.last_request_time > self.greeting_timeout:
+                    should_play_greeting = True
+                self.last_request_time = current_time
+            
+            threading.Thread(target=self._sender, args=(jid, q), daemon=True).start()
+            fut = self.executor.submit(self._worker, msg, cancel, q, should_play_greeting)
+            self.jobs[jid] = {"cancel": cancel, "fut": fut}
+            logger.info(f"[SERVER] Started job {jid}")
+    # ... (생략) ...
+    ```
+
+*   **`interrupt`**: 진행 중인 음성 합성을 중단합니다. 특정 작업 ID를 지정하거나 모든 작업을 중단할 수 있습니다.
+*   **`list_voices`**: 현재 로드된 TTS 모델에서 사용 가능한 음성(화자) 목록을 반환합니다.
+
+### 3. 음성 생성 워커 (`_worker`)
+
+`ThreadPoolExecutor`에 의해 실행되는 `_worker` 함수는 실제 음성 합성을 담당합니다.
+
+*   요청받은 텍스트, 화자, 속도 등의 파라미터를 사용하여 `model_adapter.generate_audio()`를 호출합니다.
+*   인사말 재생이 필요한 경우, 모델 타입(MeloTTS/KokoroTTS)에 따라 적절한 언어의 인사말 오디오를 먼저 큐에 넣습니다.
+*   생성된 오디오 데이터는 `target_sr` 및 `int16` 형식으로 변환/리샘플링됩니다.
+*   오디오 데이터를 `chunk_size`에 맞춰 작은 청크로 분할하고, 각 청크를 `_sender` 스레드가 사용할 _큐_에 넣습니다.
+*   작업 중 `cancel_ev`가 설정되면 생성을 중단하고 "interrupted" 메시지를 큐에 넣습니다.
+*   모든 처리가 완료되면 `None`을 큐에 넣어 `_sender`에게 종료를 알립니다.
+
+```python
+# tts_server.py
+def _worker(self, req: Dict[str, Any], cancel_ev: threading.Event, q: queue.Queue, play_greeting: bool = True):
+    job_id = req["job_id"]
+    text = req["text"]
+    # ... (파라미터 추출) ...
+    
+    # 메타 프레임 전송 (오디오 형식 정보)
+    self._send_audio(job_id, b"meta", json.dumps(meta).encode())
+    
+    try:
+        if play_greeting: # 인사말 재생
+            # ... (모델에 따른 인사말 오디오 준비 및 큐에 추가) ...
+
+        if cancel_ev.is_set(): # 중단 확인
+            q.put(("end", "interrupted"))
+            return
+        
+        # 모델 어댑터를 통해 오디오 생성
+        audio, actual_sr = self.model_adapter.generate_audio(text=text, ...)
+        
+        # ... (오디오 형식 변환 및 청크 분할) ...
+        for chunk in chunks:
+            if cancel_ev.is_set():
+                q.put(("end", "interrupted"))
+                return
+            q.put(chunk.tobytes()) # 청크를 큐에 추가
+        
+        q.put(None) # 작업 완료 신호
+    except Exception as e:
+        q.put(("error", str(e))) # 오류 발생 시
+```
+
+### 4. 오디오 전송 스레드 (`_sender`)
+
+`_sender` 함수는 별도의 스레드에서 실행되며, `_worker`가 생성한 오디오 청크를 큐에서 가져와 ZMQ `audio_sock`을 통해 클라이언트로 전송합니다.
+
+*   큐에서 아이템을 계속 가져옵니다.
+*   아이템이 `None`이면 작업 완료로 간주하고 "completed" 메시지를 전송 후 종료합니다.
+*   아이템이 `("error", ...)` 또는 `("end", ...)` 튜플이면 해당 메시지를 전송 후 종료합니다.
+*   아이템이 오디오 바이트 데이터이면 `b"data"` 타입으로 클라이언트에 전송합니다.
+
+```python
+# tts_server.py
+def _sender(self, jid: str, q: queue.Queue):
+    try:
+        while True:
+            item = q.get() # 큐에서 아이템 가져오기
+            
+            if item is None: # 완료 신호
+                self._send_audio(jid, b"end", b"completed")
+                break
+            
+            if isinstance(item, tuple): # 오류 또는 중단 신호
+                # ... (오류/중단 메시지 전송) ...
+                break
+            
+            self._send_audio(jid, b"data", item) # 오디오 데이터 전송
+    # ... (예외 처리 및 작업 정리) ...
+    finally:
+        self.jobs.pop(jid, None) # 작업 목록에서 제거
+```
+
+### 5. Mermaid 다이어그램: `generate` 명령어 처리 흐름
 
 ```mermaid
-graph TD
-    ClientAudioVideo[클라이언트 오디오/비디오 In] --> TransportInput[Transport Input Service]
-    TransportInput --> RTVI[RTVIProcessor]
-    RTVI --> STT[WhisperSTTService]
-    STT --> UserAggregator[User Context Aggregator]
-    UserAggregator --> LLM[GoogleLLMService]
-    LLM --> TTS[TTSPipecService]
-    LLM --> Simli[SimliVideoService]
-    TTS --> TransportOutput[Transport Output Service]
-    Simli --> TransportOutput
-    TransportOutput --> ClientAudioVideoOut[클라이언트 오디오/비디오 Out]
-    LLM --> AssistantAggregator[Assistant Context Aggregator]
+sequenceDiagram
+    participant Client as 클라이언트
+    participant CmdSock as "ZMQ REP (명령:5555)"
+    participant Server as "UnifiedTTSServer"
+    participant ThreadPool as "ThreadPoolExecutor"
+    participant Worker as "_worker (작업스레드)"
+    participant Adapter as "TTSModelAdapter"
+    participant Sender as "_sender (전송스레드)"
+    participant AudioSock as "ZMQ PUSH (오디오:5556)"
+
+    Client->>CmdSock: generate 요청 (JSON)
+    CmdSock->>Server: _process_cmd(요청)
+    activate Server
+    Server->>CmdSock: {"status": "started", "job_id": jid} 응답
+    Server->>Sender: _sender 스레드 시작 (큐 전달)
+    activate Sender
+    Server->>ThreadPool: _worker 작업 제출 (요청, 취소이벤트, 큐, 인사말여부 전달)
+    deactivate Server
+    ThreadPool->>Worker: _worker 실행
+    activate Worker
+
+    Worker->>AudioSock: 메타데이터 전송 ([jid, b"meta", ...])
+
+    alt 인사말 재생 (play_greeting == true)
+        Worker->>Server: _get_prepared_greeting_xx() 호출
+        activate Server
+        Server-->>Worker: 인사말 오디오 데이터
+        deactivate Server
+        Worker->>Sender: queue.put(인사말 청크)
+        Sender->>AudioSock: 오디오 청크 전송 ([jid, b"data", ...])
+    end
+
+    Worker->>Adapter: generate_audio(텍스트, ...) 호출
+    activate Adapter
+    Adapter-->>Worker: 생성된 오디오 데이터 (numpy array)
+    deactivate Adapter
+
+    Worker->>Worker: 오디오 변환 및 청크 분할
+    loop 오디오 청크 반복
+        Worker->>Sender: queue.put(오디오 청크)
+        Sender->>AudioSock: 오디오 청크 전송 ([jid, b"data", ...])
+    end
+
+    Worker->>Sender: queue.put(None) (완료 신호)
+    deactivate Worker
+
+    Sender->>AudioSock: 종료 메시지 전송 ([jid, b"end", b"completed"])
+    deactivate Sender
 ```
 
-**흐름 설명:**
+## 전체 아키텍처와의 통합
 
-1.  클라이언트로부터 오디오 및 비디오 데이터가 WebRTC를 통해 `TransportInput`으로 들어옵니다.
-2.  `RTVIProcessor`는 VAD 등을 처리하고 오디오 프레임을 후속 서비스로 전달합니다.
-3.  `WhisperSTTService`는 오디오를 텍스트로 변환합니다.
-4.  변환된 텍스트는 `UserAggregator`를 통해 LLM 컨텍스트에 사용자 메시지로 추가됩니다.
-5.  `GoogleLLMService`는 컨텍스트를 기반으로 응답 텍스트를 생성합니다.
-6.  생성된 응답 텍스트는 `TTSPipecService`로 전달되어 음성 오디오로 변환되고, 동시에 `SimliVideoService`로 전달되어 아바타 영상 생성에 사용됩니다.
-7.  변환된 음성 오디오와 생성된 아바타 영상은 `TransportOutput`을 통해 클라이언트로 전송됩니다.
-8.  LLM의 응답은 `AssistantAggregator`를 통해 LLM 컨텍스트에 어시스턴트 메시지로 추가되어 다음 턴의 대화에 활용됩니다.
+`tts_server.py`의 `UnifiedTTSServer`는 이 TTS 서버 애플리케이션의 **중심 제어 장치** 역할을 합니다.
 
-### 주요 코드 스니펫
+*   **클라이언트 인터페이스**: ZMQ를 통해 외부 클라이언트(예: 다른 애플리케이션, 웹 서비스)와 통신하는 유일한 접점입니다. 클라이언트의 모든 요청은 이 서버를 통해 TTS 엔진으로 전달됩니다.
+*   **TTS 엔진 추상화**: `TTSModelAdapter` (및 그 구현체인 `MeloTTSAdapter`, `KokoroTTSAdapter`)를 사용하여 실제 TTS 엔진의 복잡성을 숨깁니다. 서버는 어댑터의 표준화된 인터페이스(`initialize`, `generate_audio`, `list_voices` 등)만을 호출하므로, 새로운 TTS 엔진을 추가하거나 기존 엔진을 교체하기 용이합니다.
+*   **동시성 관리**: `ThreadPoolExecutor`를 사용하여 다수의 TTS 요청을 병렬로 처리함으로써 시스템의 처리량과 응답성을 향상시킵니다. 각 요청은 독립적인 작업으로 관리됩니다.
+*   **스트리밍 처리**: 오디오 생성과 전송을 분리하고, 생성된 오디오를 청크 단위로 즉시 전송함으로써 긴 텍스트에 대한 TTS 요청 시에도 사용자가 빠르게 결과를 받을 수 있도록 합니다. 이는 `_worker` (생성 및 큐잉)와 `_sender` (큐에서 가져와 전송)의 협력을 통해 이루어집니다.
+*   **상태 관리**: 현재 진행 중인 작업(`self.jobs`), 마지막 요청 시간(`self.last_request_time` for greeting) 등의 상태를 관리하여 서버 운영을 제어합니다.
 
-#### 1. 파이프라인 정의
-`run_bot.py`에서 파이프라인 객체를 생성하고 각 서비스를 연결하는 부분입니다.
+결론적으로, `tts_server.py`는 TTS 모델 어댑터, ZMQ 통신, 스레드 풀을 효과적으로 조합하여 강력하고 유연한 TTS 서비스 백엔드를 구성합니다. 이 서버는 다양한 TTS 모델을 활용하여 음성 서비스를 제공하고자 하는 모든 시스템의 핵심 구성 요소로 기능할 수 있습니다.
 
-```python
-# run_bot.py L45-L56
-		pipeline = Pipeline([
-			transport.input(),
-			rtvi,
-			stt,
-			agg.user(),
-			llm,
-			tts,
-			simli,
-			transport.output(),
-			agg.assistant()
-		])
-```
-
-#### 2. LLM 및 시스템 프롬프트 설정
-Google Gemini 모델을 사용하며, 한국어 응답 및 특정 역할(영어 표현 코치 AI)을 수행하도록 시스템 프롬프트를 설정합니다.
-
-```python
-# run_bot.py L126-L132
-		llm = GoogleLLMService(
-			api_key=os.getenv("GOOGLE_API_KEY"),
-			model=llm_model, # "gemini-2.0-flash"
-			params=GoogleLLMService.InputParams(temperature=1, language=Language.KO_KR, thinking_budget=0),
-			system_prompt=llm_system_prompt # "You are a fast, low-latency chatbot..." (기본 프롬프트)
-		)
-# run_bot.py L168-L186 (실제 적용되는 시스템 프롬프트)
-		system_prompt = """특수문자를 사용하면 안됩니다.[절대사용하지말아야할 문자 : *, / ]저는 한국인을 위한 영어 표현 코치 AI 에이전트입니다. 한국어 질문에 영어 표현과 간단한 한국어 설명을 제공합니다. 사용자의 한국어 입력을 이해하고 적절한 영어 표현을 자연스러운 발음으로 들려줍니다.
-날씨, 영어 표현, 간단한 회화 등 일상 질문에 답변하며, 특히 비즈니스, 여행, 일상 영어 표현에 특화되어 있습니다. STT로 인한 오타나 인식 오류가 있더라도 문맥을 고려해 의도를 파악합니다.
-한국어 또는 영어로만 답변하며, 깔끔하고 자연스러운 문장으로 TTS에 최적화된 응답을 제공합니다 구체적인 씬 예시에 맞는 질문을 받는다면 구체적인 씬 예시의 답변을 제공합니다.
-시나리오 정보:
-- 비즈니스 영어: 회의, 이메일, 프레젠테이션 표현
-- 여행 영어: 호텔, 레스토랑, 교통, 쇼핑 관련 표현
-- 일상 영어: 인사, 소개, 취미, 날씨 대화
-
-구체적인 씬 예시:
-처음 인사말 :
-"안녕하세요! 영어 표현 코치 AI입니다. 어떤 영어 표현이 필요하신가요?"
-[비즈니스 영어 씬]
-사용자: 외국 동료에게 프로젝트 지연을 알리는 이메일을 어떻게 쓰면 좋을까요?
-AI 코치: 프로젝트 지연 안내 이메일은 다음과 같이 작성할 수 있습니다:
-"I regret to inform you that there will be a delay in our project timeline due to technical issues. The new expected 
-```
-
-#### 3. 도구(Function Calling) 정의 및 등록
-날씨 정보를 조회할 수 있는 `get_current_weather` 함수를 정의하고 LLM에 등록하여, 사용자가 날씨를 물어보면 이 함수를 호출하여 실제 날씨 정보를 응답에 포함시킬 수 있도록 합니다.
-
-```python
-# run_bot.py L150-L166
-		weather_function = FunctionSchema(
-			name="get_current_weather",
-			description="Get the current weather for a specific location",
-			# ... (속성 정의) ...
-		)
-		async def fetch_weather(function_name, tool_call_id, args, llm, context, result_callback):
-			location = args.get("location", "서울")
-			format = args.get("format", "celsius")
-			
-			weather_data = get_weather(location, format) # utils.get_weather 호출
-			
-			await result_callback(weather_data)
-
-		# ...
-		tools = ToolsSchema(standard_tools=[weather_function])
-		# ...
-		llm.register_function("get_current_weather", fetch_weather)
-```
-
-#### 4. 클라이언트 이벤트 핸들러
-WebRTC Transport를 통해 클라이언트의 연결, 연결 해제 등의 이벤트를 처리합니다.
-
-```python
-# run_bot.py L66-L72
-		@transport.event_handler("on_client_connected")
-		async def on_client_connected(tr, client):
-			logger.info(f"[run_bot:{pc_id}] 🔗 Transport: 클라이언트 연결됨")
-			await pipeline_task.queue_frames([agg.user().get_context_frame()])
-			await asyncio.sleep(2)
-			logger.info(f"[run_bot:{pc_id}] 🤖 BotReady 메시지 전송 시도")
-			await rtvi.set_bot_ready()
-			logger.info(f"[run_bot:{pc_id}] ✅ BotReady 메시지 전송 완료")
-```
-
-### 전체 아키텍처와의 통합
-`run_bot.py`의 `run_bot` 함수는 `server.py`에서 새로운 WebRTC 연결이 성공적으로 수립될 때 호출됩니다. `server.py`는 FastAPI를 사용하여 웹 서버를 구성하고, `/offer` 엔드포인트 등을 통해 WebRTC 핸드셰이크 과정을 처리합니다. 연결이 완료되면 `SmallWebRTCConnection` 객체와 `SmallWebRTCTransport` 객체가 생성되고, 이 객체들과 함께 `run_bot` 함수가 백그라운드 태스크로 실행됩니다.
-
-`server.py`의 `pcs` (pipeline connections) 딕셔너리는 현재 활성화된 `PipelineTask`들을 관리하며, `pc_id` (peer connection ID)를 키로 사용합니다. `run_bot` 함수는 이 `pcs` 딕셔너리에 생성된 `PipelineTask`를 저장하거나 업데이트하여, 서버 전체적으로 파이프라인의 상태를 추적하고 관리할 수 있도록 합니다. 클라이언트 연결이 종료되면 해당 `PipelineTask`는 취소되고 `pcs`에서 제거됩니다.
-
-이러한 구조를 통해 각 클라이언트 연결마다 독립적인 대화 파이프라인을 생성하고 운영할 수 있으며, 서버는 여러 클라이언트의 요청을 동시에 처리할 수 있습니다.
-
-<p>Sources: <a href="https://github.com/donggyun112/PipeChat_server/blob/main/run_bot.py" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">run_bot.py</a></p>
+<p>Sources: <a href="https://github.com/donggyun112/tts_server/blob/main/tts_server.py" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">tts_server.py</a></p>
 
 ---
 
 <a id='page-3'></a>
 
-## 음성 인식 및 처리 (STT & VAD)
+## TTS 모델 연동
 
 ### Related Files
 
-- `stt/whisper_stt_service.py`
-- `stt/light_whisper_streaming.py`
-- `vad/voice_check.py`
-- `vad/vad_test.py`
+- `tts_server.py`
+- `utils/tts.py`
+- `MeloTTS/melo/api.py`
 
 ### Related Pages
 
-Related topics: [핵심 파이프라인 및 데이터 흐름](#page-2)
+Related topics: [프로젝트 개요](#page-1), [MeloTTS 상세 가이드](#page-5)
 
-## 음성 인식 및 처리 (STT & VAD)
+## TTS 모델 연동
 
-### 1. 개요
+### 1. 소개
 
-음성 인식(Speech-to-Text, STT)은 사람의 음성을 텍스트 데이터로 변환하는 기술이며, 음성 활동 감지(Voice Activity Detection, VAD)는 오디오 스트림에서 사람의 음성이 존재하는 구간을 식별하는 기술입니다. PipeChat\_server에서 이 두 기술은 사용자의 음성 입력을 실시간으로 처리하고, 이를 기반으로 챗봇과 상호작용하는 핵심적인 역할을 수행합니다. VAD를 통해 음성 구간만을 효율적으로 STT 모듈로 전달하여 처리 성능을 높이고, 불필요한 오디오 처리를 줄입니다.
+TTS(Text-to-Speech) 모델 연동은 다양한 TTS 엔진 또는 라이브러리를 `tts_server` 시스템에 통합하여 사용하는 과정을 의미합니다. 이 서버는 `UnifiedTTSServer`를 중심으로 여러 TTS 모델(예: MeloTTS, KokoroTTS)을 선택적으로 활용할 수 있도록 설계되었습니다. 이를 통해 사용자는 필요에 따라 다양한 음성, 언어, 품질의 TTS를 유연하게 선택하고 사용할 수 있습니다.
 
-### 2. 핵심 구성 요소
+<p>Sources: <a href="https://github.com/donggyun112/tts_server/blob/main/tts_server.py" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">tts_server.py</a>, <a href="https://github.com/donggyun112/tts_server/blob/main/utils/tts.py" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">utils/tts.py</a></p>
 
-#### 2.1. 음성 활동 감지 (VAD)
+### 2. 목적 및 기능
 
-VAD는 오디오 입력에서 실제 음성 부분만을 감지하여 STT 처리를 위한 오디오 세그먼트를 생성합니다.
+*   **목적**:
+    *   **다양한 TTS 옵션 제공**: 여러 TTS 모델을 지원하여 사용자가 음성, 언어, 스타일 등 다양한 요구사항에 맞는 TTS를 선택할 수 있도록 합니다.
+    *   **유연성 및 확장성**: 새로운 TTS 모델을 쉽게 추가하거나 기존 모델을 교체할 수 있는 모듈식 구조를 제공합니다.
+    *   **일관된 인터페이스**: 다양한 TTS 모델들의 고유한 API를 추상화 계층(`TTSModelAdapter`)을 통해 표준화하여, 서버 사용자에게는 통일된 방식으로 TTS 기능을 제공합니다.
 
-##### `vad/voice_check.py`
+*   **주요 기능**:
+    *   **모델 선택**: 클라이언트는 요청 시 사용할 TTS 모델(예: "melo", "kokoro")과 화자, 속도 등의 파라미터를 지정할 수 있습니다.
+    *   **요청 처리**: ZeroMQ(ZMQ)를 통해 TTS 생성 요청을 수신하고, 해당 요청을 적절한 TTS 모델 어댑터에 전달하여 처리합니다.
+    *   **오디오 스트리밍**: 생성된 오디오 데이터를 청크(chunk) 단위로 분할하여 클라이언트에 실시간으로 스트리밍합니다.
+    *   **작업 관리**: 다수의 TTS 요청을 동시에 효율적으로 처리하기 위해 스레드 풀(Thread Pool) 및 작업 큐(Job Queue)를 관리합니다.
+    *   **인사말 기능**: 일정 시간 동안 TTS 요청이 없을 경우, 미리 준비된 인사말 오디오를 재생하여 서버 활성화 상태를 알립니다.
 
-이 파일은 `VoiceDetector` 클래스와 `AudioEventManager` 클래스를 정의하여 음성 활동 감지 및 관련 이벤트 관리를 담당합니다.
+### 3. 핵심 구성 요소 및 연동 방식
 
-*   **`VoiceDetector` 클래스**
-    *   **목적**: 오디오 청크를 분석하여 음성 존재 여부를 판단합니다. 에너지 레벨과 Silero VAD 모델을 함께 사용하여 정확도를 높입니다.
-    *   **주요 기능**:
-        *   Silero VAD ONNX 모델(`silero_vad_16k_op15.onnx`) 로드 및 사용
-        *   오디오 에너지 계산 및 임계값 기반 감지
-        *   음성 시작, 지속, 종료 시점 판단
-        *   디바운싱(Debouncing) 로직을 통해 짧은 노이즈나 침묵으로 인한 오탐 방지
-        *   `AudioEventManager`를 통한 이벤트 발행 (선택 사항)
-    *   **코드 예시**: `process_audio_chunk` 메서드 (핵심 로직)
-        ```python
-        # vad/voice_check.py 일부
-        def process_audio_chunk(self, chunk: np.ndarray) -> bool:
-            # ... (에너지 계산 및 버퍼 관리) ...
+TTS 모델 연동은 주로 `tts_server.py`의 `UnifiedTTSServer`, `utils/tts.py`의 `TTSModelAdapter` 추상 클래스 및 그 구현체들(예: `MeloTTSAdapter`), 그리고 실제 TTS 라이브러리(예: MeloTTS의 `melo.api.TTS`) 간의 상호작용을 통해 이루어집니다.
 
-            # Silero VAD 모델을 사용하여 음성 확률 계산
-            speech_prob = self.model(audio_float32, self.sample_rate).item()
-            self.recent_vad_probs.append(speech_prob)
+#### 3.1. `tts_server.py` : 통합 TTS 서버
 
-            is_currently_speaking = speech_prob >= self.vad_threshold
-            # ... (상태 변화 감지 및 디바운싱 로직) ...
+`UnifiedTTSServer` 클래스는 전체 TTS 서비스의 중심 역할을 수행합니다.
+*   **ZMQ 통신**: 클라이언트로부터 TTS 생성(`generate`), 중단(`interrupt`), 사용 가능 음성 목록 조회(`list_voices`) 등의 명령을 ZMQ REP 소켓을 통해 수신합니다. 생성된 오디오 데이터는 ZMQ PUSH 소켓을 통해 클라이언트로 전송됩니다.
+*   **모델 어댑터 관리**: 서버 초기화 시 지정된 모델 어댑터(`TTSModelAdapter`의 구현체, 예: `MeloTTSAdapter`)를 사용하여 실제 TTS 변환 작업을 수행합니다.
+*   **비동기 작업 처리**: `ThreadPoolExecutor`를 사용하여 각 TTS 요청을 별도의 스레드에서 비동기적으로 처리하여 서버의 응답성을 유지합니다.
+*   **인사말 오디오**: `greeting_timeout` 동안 요청이 없으면, 모델 종류에 따라 한국어 또는 영어 인사말을 재생합니다.
 
-            if self.use_event_manager and self.event_manager:
-                self.event_manager.publish(AudioEventType.VAD_STATE_CHANGE, 
-                                           {"speaking": self.is_speaking_now, "probability": speech_prob})
-            return self.is_speaking_now
-        ```
+```python
+# tts_server.py 일부 (명령 처리 로직)
+# ...
+    def _process_cmd(self, msg: Dict[str, Any]):
+        """클라이언트 명령 처리"""
+        cmd = msg.get("command")
+        jid = msg.get("job_id")
 
-*   **`AudioEventManager` 클래스**
-    *   **목적**: 오디오 관련 이벤트(예: 발화 시작, 발화 종료, VAD 상태 변경)를 시스템의 다른 부분에 알리는 발행-구독(publish-subscribe) 패턴을 제공하는 싱글톤 클래스입니다.
-    *   **주요 기능**:
-        *   이벤트 구독(`subscribe`), 구독 해제(`unsubscribe`), 발행(`publish`)
-        *   공유 상태(`_shared_state`) 관리를 통해 현재 오디오 상태(발화 중 여부, 에너지 레벨 등) 제공
-    *   **코드 예시**: 이벤트 발행
-        ```python
-        # vad/voice_check.py 일부
-        class AudioEventManager:
-            # ...
-            def publish(self, event_type: AudioEventType, data=None):
-                # ...
-                for callback in self._subscribers[event_type]:
-                    try:
-                        callback(data)
-                    except Exception as e:
-                        logging.error(f"이벤트 처리 중 오류: {e}")
-                return True
-        ```
+        if cmd == "generate":
+            # 음성 생성 요청
+            self.cmd_sock.send_json({"status": "started", "job_id": jid})
+            q = queue.Queue()
+            cancel = threading.Event()
+            
+            # ... 인사말 재생 여부 결정 로직 ...
 
-<p>Sources: <a href="https://github.com/donggyun112/PipeChat_server/blob/main/vad/voice_check.py" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">vad/voice_check.py</a></p>
-
-##### `vad/vad_test.py` (VAD 활용 예시)
-
-이 파일은 `VoiceDetector`를 사용하여 실제 오디오 스트림에서 음성을 감지하고 녹음하는 `AudioRecorder` 클래스를 포함하는 테스트 스크립트입니다.
-
-*   **`AudioRecorder` 클래스**:
-    *   `VoiceDetector`를 활용하여 마이크 입력으로부터 음성 구간을 감지합니다.
-    *   음성 감지 시 녹음을 시작하고, 일정 시간 침묵이 감지되면 녹음을 종료합니다.
-    *   Pre-buffering 및 Post-buffering 기능을 통해 발화 시작 전후의 오디오도 일부 포함하여 자연스러운 녹음이 가능하도록 합니다.
-    *   녹음된 오디오는 임시 WAV 파일로 저장되고, `start_action_after_speech` 메서드를 통해 후속 처리(예: STT)를 트리거할 수 있습니다.
-
-<p>Sources: <a href="https://github.com/donggyun112/PipeChat_server/blob/main/vad/vad_test.py" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">vad/vad_test.py</a></p>
-
-#### 2.2. 음성 인식 (STT)
-
-STT는 VAD를 통해 전달받은 음성 오디오 세그먼트를 텍스트로 변환합니다.
-
-##### `stt/light_whisper_streaming.py`
-
-이 파일은 `OnlineSTTProcessor` 클래스를 정의하여 Whisper 모델을 사용한 스트리밍 음성 인식을 구현합니다.
-
-*   **`OnlineSTTProcessor` 클래스**
-    *   **목적**: 실시간으로 들어오는 오디오 청크를 처리하여 중간 및 최종 인식 결과를 제공합니다.
-    *   **주요 기능**:
-        *   `lightning_whisper_mlx` 모델 사용.
-        *   내부 오디오 버퍼(`utterance_buffer`)를 관리하며, VAD(`VoiceDetector`)를 통해 발화 시작 및 종료를 감지합니다.
-        *   `insert_audio_chunk()`: 새로운 오디오 데이터를 버퍼에 추가합니다.
-        *   `process_iter()`: 버퍼의 오디오를 처리하여 중간(interim) 인식 결과를 생성합니다.
-        *   `finish_utterance()`: 발화가 종료되면 최종(final) 인식 결과를 생성합니다.
-        *   `HypothesisBuffer`를 사용하여 인식 결과의 안정성을 높입니다.
-        *   `KoreanTokenizer`를 사용하여 한국어 텍스트를 문장 단위로 분리할 수 있습니다.
-    *   **코드 예시**: 오디오 청크 삽입 및 처리
-        ```python
-        # stt/light_whisper_streaming.py 일부
-        class OnlineSTTProcessor:
-            # ...
-            def insert_audio_chunk(self, audio_chunk: np.ndarray, current_time: float):
-                # ... (VAD를 이용한 발화 감지 및 버퍼 관리) ...
-                if self.utterance_in_progress:
-                    self.utterance_buffer = np.concatenate([self.utterance_buffer, audio_chunk])
-                
-                # 발화 종료 감지 시 finish_utterance 호출
-                if not self.voice_active and self.utterance_in_progress and \
-                   (current_time - self.last_voice_activity > self.voice_timeout):
-                    return self.finish_utterance()
-                return None # 중간 결과 또는 아무것도 없음
-
-            def process_iter(self):
-                # ... (버퍼의 오디오로 중간 인식 수행) ...
-                # interim_text = self.whisper.transcribe(...)
-                return start_time, end_time, interim_text, metadata
-        ```
-
-*   **`KoreanTokenizer` 클래스**: 한국어 텍스트를 문장 단위로 분리합니다. `kss` 라이브러리가 설치되어 있으면 이를 사용하고, 없으면 정규식을 이용한 기본 분리 기능을 제공합니다.
-*   **`HypothesisBuffer` 클래스**: STT 모델이 연속적으로 생성하는 가설들 사이에서 안정적인 텍스트 부분을 확정하여 사용자에게 더 일관된 중간 결과를 보여주는 데 도움을 줍니다.
-
-<p>Sources: <a href="https://github.com/donggyun112/PipeChat_server/blob/main/stt/light_whisper_streaming.py" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">stt/light_whisper_streaming.py</a></p>
-
-##### `stt/whisper_stt_service.py`
-
-`pipecat` 프레임워크의 `STTService`를 상속받아 Whisper 모델을 사용하는 STT 서비스를 구현합니다.
-
-*   **`WhisperSTTService` 클래스**
-    *   **목적**: `pipecat` 파이프라인 내에서 오디오 프레임을 입력받아 텍스트 프레임으로 변환하는 서비스 역할을 합니다.
-    *   **주요 기능**:
-        *   `lightning_whisper_mlx` 모델과 `OnlineSTTProcessor`를 내부적으로 사용하여 STT 수행.
-        *   입력으로 `AudioRawFrame`을 받아 처리하고, `TranscriptionFrame` (최종 결과) 및 `InterimTranscriptionFrame` (중간 결과)을 생성하여 파이프라인의 다음 단계로 전달.
-        *   오디오 버퍼링 및 샘플레이트 관리.
-        *   모델 이름, 버퍼 크기 등 설정을 초기화 시 지정 가능.
-    *   **코드 예시**: `run_stt` 메서드
-        ```python
-        # stt/whisper_stt_service.py 일부
-        class WhisperSTTService(STTService):
-            # ...
-            async def run_stt(self, audio: bytes) -> AsyncGenerator[Frame, None]:
-                pcm_f32 = (np.frombuffer(audio, np.int16)
-                           .astype(np.float32, copy=False) / 32768.0)
-                
-                current_time = time.time()
-                
-                final_res = self.stt_processor.insert_audio_chunk(pcm_f32, current_time)
-                if isinstance(final_res, dict):
-                    text = final_res["text"]
-                    if text:
-                        yield TranscriptionFrame(text=text, language="ko-KR", ...)
-                    return
-                
-                start, end, interim_text, meta = self.stt_processor.process_iter()
-                if interim_text:
-                    yield InterimTranscriptionFrame(text=interim_text, language="ko-KR", ...)
-        ```
-
-<p>Sources: <a href="https://github.com/donggyun112/PipeChat_server/blob/main/stt/whisper_stt_service.py" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">stt/whisper_stt_service.py</a></p>
-
-### 3. 데이터 흐름 및 상호작용
-
-다음은 원시 오디오 입력부터 최종 텍스트 변환까지의 대략적인 데이터 흐름을 나타낸 다이어그램입니다.
-
-```mermaid
-graph TD
-    UserInput[사용자 음성 입력] --> TransportIn[WebRTC Transport Input]
-    TransportIn --> AudioRawFrame[AudioRawFrame 생성]
-    AudioRawFrame --> STTSvc[WhisperSTTService]
-    STTSvc -->|오디오 청크 전달| OnlineProc[OnlineSTTProcessor]
-    OnlineProc -->|VAD 모듈 사용| VAD[VoiceDetector]
-    VAD -->|음성/침묵 정보| OnlineProc
-    OnlineProc -->|처리된 오디오| WhisperModel[Whisper MLX Model]
-    WhisperModel -->|인식 세그먼트| OnlineProc
-    OnlineProc -->|중간/최종 텍스트| STTSvc
-    STTSvc -->|TranscriptionFrame / InterimTranscriptionFrame| LLMAgg[LLM Aggregator]
-    LLMAgg --> LLM[LLM Service]
+            # 송신 스레드 시작
+            threading.Thread(target=self._sender, args=(jid, q), daemon=True).start()
+            
+            # 오디오 생성 작업 실행
+            fut = self.executor.submit(self._worker, msg, cancel, q, should_play_greeting)
+            
+            self.jobs[jid] = {"cancel": cancel, "fut": fut}
+            logger.info(f"[SERVER] Started job {jid}")
+# ...
 ```
 
-**다이어그램 설명:**
+<p>Source: <a href="https://github.com/donggyun112/tts_server/blob/main/tts_server.py" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">tts_server.py</a></p>
 
-1.  **사용자 음성 입력**: 사용자가 마이크를 통해 음성을 입력합니다.
-2.  **WebRTC Transport Input**: WebRTC를 통해 서버로 오디오 데이터가 스트리밍됩니다.
-3.  **AudioRawFrame 생성**: 입력된 오디오는 `AudioRawFrame` 형태로 변환됩니다.
-4.  **WhisperSTTService**: 이 서비스가 `AudioRawFrame`을 수신합니다.
-5.  **OnlineSTTProcessor**: `WhisperSTTService`는 내부의 `OnlineSTTProcessor`에게 오디오 청크를 전달합니다.
-6.  **VoiceDetector**: `OnlineSTTProcessor`는 `VoiceDetector`를 사용하여 현재 오디오 청크가 음성인지 침묵인지 판단합니다.
-7.  **Whisper MLX Model**: VAD를 통해 유효한 음성으로 판단된 오디오 데이터가 Whisper 모델로 전달되어 실제 텍스트 변환이 이루어집니다.
-8.  **인식 세그먼트**: 모델은 인식된 텍스트 세그먼트를 반환합니다.
-9.  **중간/최종 텍스트**: `OnlineSTTProcessor`는 이를 바탕으로 중간 또는 최종 인식 텍스트를 생성합니다.
-10. **TranscriptionFrame / InterimTranscriptionFrame**: `WhisperSTTService`는 이 텍스트를 담아 해당 프레임 타입으로 변환하여 파이프라인의 다음 단계(주로 LLM Aggregator)로 전달합니다.
-11. **LLM Service**: 최종적으로 변환된 텍스트는 LLM 서비스로 전달되어 응답 생성에 사용됩니다.
+#### 3.2. `utils/tts.py` : TTS 모델 어댑터
 
-### 4. 전체 아키텍처와의 통합
+이 파일은 다양한 TTS 엔진을 일관된 방식으로 사용하기 위한 추상화 계층을 제공합니다.
+*   **`TTSModelAdapter` (추상 기본 클래스)**: 모든 TTS 모델 어댑터가 구현해야 하는 공통 인터페이스를 정의합니다. 주요 메서드는 다음과 같습니다:
+    *   `initialize()`: 모델 초기화.
+    *   `warmup()`: 모델 워밍업.
+    *   `list_voices()`: 사용 가능한 음성(화자) 목록 반환.
+    *   `synthesize_sentence(sentence, voice, speed, model_sr, target_sr)`: 단일 문장에 대한 오디오 생성.
+    *   `split_sentences(text, lang)`: 텍스트를 문장으로 분리.
+    *   `default_sample_rate`: 모델의 기본 샘플링 레이트.
+    *   `model_name`: 모델 이름.
 
-*   **`run_bot.py`의 파이프라인**: `WhisperSTTService`는 `run_bot.py`에 정의된 `pipecat` 파이프라인의 한 구성요소로 포함됩니다. 이 파이프라인은 `transport.input()` (예: WebRTC를 통한 오디오 입력) -> `stt` (`WhisperSTTService`) -> `agg.user()` (LLM 컨텍스트 집계기) -> `llm` (LLM 서비스) 등의 순서로 구성됩니다.
-    ```python
-    # run_bot.py 일부
-    pipeline = Pipeline([
-        transport.input(), # WebRTC 등으로부터 오디오 수신
-        rtvi,              # RTVI 처리기 (선택적)
-        stt,               # WhisperSTTService 인스턴스
-        agg.user(),        # 사용자 발화 집계
-        llm,               # LLM 서비스
-        tts,               # TTS 서비스
-        simli,             # Simli 비디오 서비스 (선택적)
-        transport.output(),# WebRTC 등으로 오디오/비디오 송신
-        agg.assistant()    # 봇 응답 집계
-    ])
-    ```
-*   **VAD의 역할**:
-    *   `OnlineSTTProcessor` 내에서 `VoiceDetector` (VAD)가 사용되어, 실제 사용자가 말하고 있는 구간을 효과적으로 감지합니다.
-    *   이를 통해 불필요한 침묵 구간에 대한 STT 연산을 줄여 리소스 사용을 최적화하고, 응답 지연 시간을 단축하는 데 기여합니다.
-    *   사용자의 발화 시작과 끝을 명확히 구분하여, 보다 정확한 단위로 LLM에 사용자 입력을 전달할 수 있게 합니다. 이는 대화의 자연스러움과 정확성을 높이는 데 중요합니다.
-*   **실시간 상호작용**: STT 서비스에서 생성되는 `InterimTranscriptionFrame` (중간 인식 결과)은 사용자에게 실시간 피드백을 제공하여 마치 사람이 듣고 이해하는 듯한 경험을 줄 수 있으며, `TranscriptionFrame` (최종 인식 결과)은 LLM이 사용자의 의도를 파악하고 응답을 생성하는 데 사용됩니다.
+*   **`MeloTTSAdapter`**: `TTSModelAdapter`를 상속받아 MeloTTS 라이브러리와의 연동을 담당합니다.
+    *   `initialize()`: `melo.api.TTS` 클래스를 사용하여 지정된 언어의 MeloTTS 모델을 로드하고, 사용 가능한 화자 정보를 `self.voices`에 저장합니다.
+    *   `synthesize_sentence()`: 내부적으로 `melo.api.TTS` 객체의 `tts_to_file()` 메서드를 (메모리 내 BytesIO 객체를 대상으로) 호출하여 오디오 데이터를 생성하고, 필요시 샘플링 레이트를 변환합니다.
+    *   `split_sentences()`: MeloTTS가 제공하는 문장 분리 기능을 사용합니다.
 
-### 5. 소스 파일
+```python
+# utils/tts.py 일부 (MeloTTSAdapter의 문장 합성 부분)
+# class MeloTTSAdapter(TTSModelAdapter):
+# ...
+    def synthesize_sentence(
+        self,
+        sentence: str,
+        voice: str,
+        speed: float,
+        model_sr: int, # 실제 MeloTTS 모델의 SR
+        target_sr: int # 최종 출력 SR
+    ) -> np.ndarray:
+        """단일 문장에 대한 오디오 생성"""
+        try:
+            # 언어 코드 추출 (예: 'KR-Female' -> 'KR')
+            lang_code = voice.split("-")[0] if "-" in voice else voice
+            if lang_code not in self.models:
+                if not self.load_model(lang_code): # 필요시 모델 로드
+                    logger.error(f"[MeloTTS] Failed to load model for language: {lang_code}")
+                    return np.array([], dtype=np.float32)
 
-*   <p>VAD 핵심 로직: <a href="https://github.com/donggyun112/PipeChat_server/blob/main/vad/voice_check.py" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">vad/voice_check.py</a></p>
-*   <p>VAD 테스트 및 활용 예시: <a href="https://github.com/donggyun112/PipeChat_server/blob/main/vad/vad_test.py" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">vad/vad_test.py</a></p>
-*   <p>스트리밍 STT 처리 로직: <a href="https://github.com/donggyun112/PipeChat_server/blob/main/stt/light_whisper_streaming.py" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">stt/light_whisper_streaming.py</a></p>
-*   <p>Pipecat STT 서비스 구현: <a href="https://github.com/donggyun112/PipeChat_server/blob/main/stt/whisper_stt_service.py" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">stt/whisper_stt_service.py</a></p>
-*   <p>메인 파이프라인 구성: <a href="https://github.com/donggyun112/PipeChat_server/blob/main/run_bot.py" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">run_bot.py</a></p>
-Error: Invalid operation: The `response.text` quick accessor requires the response to contain a valid `Part`, but none were returned. The candidate's [finish_reason](https://ai.google.dev/api/generate-content#finishreason) is 1.
+            tts_model = self.models[lang_code]
+            speaker_id = tts_model.hps.data.spk2id.get(voice)
+
+            if speaker_id is None: # 화자 ID가 없을 경우, 해당 언어의 첫 번째 화자 사용
+                first_speaker_for_lang = next((spk for spk in tts_model.hps.data.spk2id if spk.startswith(lang_code)), None)
+                if first_speaker_for_lang:
+                    speaker_id = tts_model.hps.data.spk2id[first_speaker_for_lang]
+                    logger.warning(f"[MeloTTS] Voice '{voice}' not found. Using default '{first_speaker_for_lang}'.")
+                else:
+                    logger.error(f"[MeloTTS] No speaker found for language code '{lang_code}' or voice '{voice}'.")
+                    return np.array([], dtype=np.float32)
+
+            # MeloTTS는 파일 또는 파일 유사 객체에 출력을 저장하므로 BytesIO 사용
+            wav_io = io.BytesIO()
+            tts_model.tts_to_file(sentence, speaker_id, wav_io, speed=speed, format='wav')
+            wav_io.seek(0)
+            
+            # BytesIO에서 오디오 데이터 로드 (float32, 모노)
+            audio_data, sr = torchaudio.load(wav_io)
+            # ... (후략, 샘플링 레이트 변환 및 채널 처리 등)
+```
+
+<p>Source: <a href="https://github.com/donggyun112/tts_server/blob/main/utils/tts.py" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">utils/tts.py</a></p>
+
+#### 3.3. `MeloTTS/melo/api.py` (MeloTTS 라이브러리 API)
+
+`tts_server`는 `MeloTTS`를 외부 라이브러리로 사용합니다. `MeloTTSAdapter`는 `MeloTTS`의 `melo.api.TTS` 클래스를 활용하여 TTS 기능을 구현합니다.
+
+*   **`TTS` 클래스**:
+    *   생성자 `TTS(language, device)`: 특정 언어(`EN`, `KR`, `JP` 등)의 모델을 지정된 장치(`cpu`, `cuda`, `mps`)로 로드합니다.
+    *   `hps.data.spk2id`: 로드된 모델에서 사용 가능한 화자(speaker)와 해당 ID를 매핑한 딕셔너리입니다. `MeloTTSAdapter`는 이 정보를 사용하여 `list_voices()`를 구현하고, 음성 생성 시 적절한 화자 ID를 전달합니다.
+    *   `tts_to_file(text, speaker_id, output_path_or_fp, speed, format)`: 주어진 텍스트를 특정 화자의 음성으로 변환하여 오디오 파일로 저장하거나 파일 유사 객체(file-like object)에 씁니다. `MeloTTSAdapter`는 `io.BytesIO`를 파일 유사 객체로 전달하여 메모리 내에서 오디오 데이터를 얻습니다.
+    *   `split_sentences_into_pieces(text, language)`: 텍스트를 내부 규칙에 따라 문장 단위로 분리합니다.
+
+다음은 `MeloTTS` Python API를 직접 사용하는 예시입니다 (MeloTTS 문서 참조):
+```python
+from melo.api import TTS
+
+# Speed is adjustable
+speed = 1.0
+device = 'auto' # Will automatically use GPU if available
+
+# Korean
+text = "안녕하세요! 오늘은 날씨가 정말 좋네요."
+model = TTS(language='KR', device=device)
+speaker_ids = model.hps.data.spk2id
+
+output_path = 'kr.wav'
+# speaker_ids['KR']은 실제 사용 가능한 한국어 화자 ID 중 하나여야 합니다.
+# 예를 들어, MeloTTS README에 따르면 'KR' 화자가 존재합니다.
+model.tts_to_file(text, speaker_ids['KR'], output_path, speed=speed)
+```
+<p>Sources: <a href="https://github.com/myshell-ai/MeloTTS/blob/main/MeloTTS/docs/install.md#python-api" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">MeloTTS Python API Docs</a>, <a href="https://github.com/myshell-ai/MeloTTS/blob/main/melo/api.py" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">MeloTTS/melo/api.py</a></p>
+
+### 4. TTS 요청 처리 흐름
+
+다음은 클라이언트의 TTS 요청이 처리되는 과정을 나타낸 시퀀스 다이어그램입니다.
+
+```mermaid
+sequenceDiagram
+    participant Client as 클라이언트
+    participant Server as UnifiedTTSServer (tts_server.py)
+    participant Adapter as TTSModelAdapter (utils/tts.py)
+    participant Engine as TTS 엔진 (예: MeloTTS)
+
+    Client->>Server: TTS 생성 요청 (JSON: 텍스트, 모델, 화자, 속도 등)
+    activate Server
+    Server->>Server: 작업 ID 생성 및 요청 유효성 검사
+    Note right of Server: 인사말 재생 여부 결정
+    Server->>Adapter: TTS 작업 전달 (텍스트, 화자 설정 등)
+    activate Adapter
+    Adapter->>Engine: 모델 로드/초기화 (필요시, 예: `melo.api.TTS(lang)`)
+    activate Engine
+    Note left of Engine: 실제 음성 합성 수행 (예: `tts_to_file()`)
+    Adapter->>Engine: 음성 합성 요청 (문장, 화자ID, 속도)
+    Engine-->>Adapter: 생성된 오디오 데이터 (바이트 스트림)
+    deactivate Engine
+    Note right of Adapter: 필요시 샘플링 레이트 변환
+    Adapter-->>Server: 오디오 데이터 반환 (numpy 배열)
+    deactivate Adapter
+    Server->>Server: 오디오 데이터를 청크로 분할 (int16 변환)
+    Server->>Client: 오디오 데이터 스트리밍 (ZMQ PUSH 소켓)
+    deactivate Server
+```
+
+### 5. 전체 아키텍처와의 통합
+
+TTS 모델 연동 기능은 `tts_server`의 핵심 서비스입니다.
+*   `tts_server.py`의 `UnifiedTTSServer`는 서버의 진입점이자 요청 처리의 중심입니다.
+*   `utils/tts.py`에 정의된 `TTSModelAdapter`와 그 구현체들은 실제 TTS 엔진과의 상호작용을 담당하며, 서버의 나머지 부분과 TTS 엔진 구현을 분리합니다. 이 어댑터 패턴은 새로운 TTS 엔진을 추가하거나 기존 엔진을 수정할 때 서버의 핵심 로직 변경을 최소화하여 시스템의 유연성과 유지보수성을 높입니다.
+*   클라이언트는 ZMQ 프로토콜을 통해 서버와 통신하며, 서버는 선택된 모델 어댑터를 통해 TTS를 수행하고 그 결과를 스트리밍 형태로 클라이언트에게 반환합니다.
+*   이러한 구조는 다양한 TTS 기술을 통합하고, 필요에 따라 특정 TTS 엔진으로 쉽게 전환할 수 있는 확장 가능한 TTS 서버 아키텍처를 가능하게 합니다.
 
 ---
 
 <a id='page-4'></a>
 
-## 음성 합성 및 아바타 연동 (TTS & Simli)
+## API 및 사용법
 
 ### Related Files
 
-- `tts/tts_service.py`
-- `run_bot.py`
+- `tts_server.py`
 
 ### Related Pages
 
-Related topics: [핵심 파이프라인 및 데이터 흐름](#page-2)
+Related topics: [서버 아키텍처](#page-2)
 
-## 음성 합성(TTS) 및 아바타 연동(Simli)
+## API 및 사용법 (`tts_server.py`)
 
-### 개요
-PipeChat_server에서 "음성 합성(TTS) 및 아바타 연동(Simli)"은 사용자와의 상호작용을 더 자연스럽고 몰입감 있게 만들기 위한 핵심 기능입니다. 텍스트 기반의 AI 응답을 사람과 유사한 음성으로 변환하고, 이 음성에 맞춰 아바타의 입 모양을 동기화하여 시청각적인 피드백을 제공합니다.
+### 1. 소개
 
-### 목적 및 기능
-*   **TTS (Text-to-Speech)**: 대규모 언어 모델(LLM)이 생성한 텍스트 응답을 자연스러운 음성으로 변환합니다. 이를 통해 사용자는 AI의 답변을 귀로 들을 수 있습니다.
-*   **Simli (아바타 연동)**: 생성된 음성에 맞춰 실시간으로 아바타의 입 모양(립싱크)과 표정을 동기화합니다. 이는 사용자에게 마치 실제 사람과 대화하는 듯한 경험을 제공하여 상호작용의 질을 높입니다.
+`tts_server.py`는 다양한 텍스트 음성 변환(TTS) 모델을 통합적으로 관리하고, ZeroMQ 메시징 프로토콜을 통해 외부 클라이언트에게 TTS 기능을 API 형태로 제공하는 서버 애플리케이션입니다. 클라이언트는 지정된 포트로 명령을 전송하여 음성 합성을 요청하고, 스트리밍 형태로 오디오 데이터를 수신할 수 있습니다.
 
-`run_bot.py` 파일은 전체 파이프라인을 구성하고 각 서비스를 초기화하며, `tts/tts_service.py`는 실제 TTS 변환 로직을 담당하는 서비스입니다.
+<p>Sources: <a href="https://github.com/donggyun112/tts_server/blob/main/tts_server.py" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">tts_server.py</a></p>
 
-### 주요 구성 요소 및 동작 방식
+### 2. 주요 기능
 
-#### 1. `run_bot.py`에서의 TTS 및 Simli 설정
-`run_bot.py`는 파이프라인 내에서 TTS 서비스와 Simli 비디오 서비스를 설정하고 연동합니다.
+*   **다양한 TTS 모델 지원**: `TTSModelAdapter` 추상 클래스와 이를 상속하는 `MeloTTSAdapter`, `KokoroTTSAdapter` 등을 통해 여러 TTS 엔진을 유연하게 통합하고 사용할 수 있습니다. (관련 유틸리티: `utils.tts`)
+*   **ZeroMQ 기반 API**:
+    *   명령어 소켓(기본 포트 5555, REP 패턴): TTS 생성, 중단, 사용 가능 음성 목록 조회 등의 명령을 JSON 형식으로 수신합니다.
+    *   오디오 소켓(기본 포트 5556, PUSH 패턴): 생성된 오디오 데이터를 메타데이터와 함께 스트리밍 형태로 클라이언트에 전송합니다.
+*   **동시 요청 처리**: `ThreadPoolExecutor`를 사용하여 여러 클라이언트의 TTS 요청을 동시에 효율적으로 처리합니다.
+*   **오디오 스트리밍**: 생성된 오디오를 작은 청크 단위로 분할하여 실시간 스트리밍 형태로 제공합니다.
+*   **인사말 오디오**: 특정 조건(마지막 요청 후 일정 시간 경과) 만족 시, 미리 준비된 인사말 오디오를 먼저 전송하는 기능이 있습니다. (`_get_prepared_greeting_kr`, `_get_prepared_greeting_en` 함수 참고)
+*   **유연한 파라미터 설정**: 음성, 속도, 샘플링 레이트 등 다양한 TTS 파라미터를 요청 시 지정할 수 있습니다.
 
-*   **TTS 서비스 초기화**: `TTSPipecService`를 사용하여 지정된 음성(예: "KR")과 속도로 TTS 기능을 설정합니다.
-    ```python
-    # File: run_bot.py
-    # Lines: 48-52
-    tts = TTSPipecService(
-    	voice="KR",
-    	speed=tts_speed,
-    	Language=Language.KO,
-    )
-    ```
-*   **Simli 비디오 서비스 초기화**: `SimliVideoService`를 사용하여 API 키, Face ID 등의 설정을 통해 아바타 서비스를 초기화합니다. `syncAudio=True` 옵션은 오디오와 비디오의 동기화를 활성화합니다.
-    ```python
-    # File: run_bot.py
-    # Lines: 39-47
-    simli = SimliVideoService(
-    	SimliConfig(
-    		apiKey=os.getenv("SIMLI_API_KEY"),
-    		faceId=os.getenv("SIMLI_FACE_ID"),
-    		syncAudio=True,
-    		handleSilence=True,
-    		maxSessionLength=3000,
-    		maxIdleTime=30
-    	),
-    	latency_interval=0
-    )
-    ```
-*   **파이프라인 구성**: STT(Speech-to-Text) → LLM → TTS → Simli 순서로 데이터가 처리되도록 파이프라인을 구성합니다. LLM이 생성한 텍스트가 TTS로 전달되어 음성으로 변환되고, 이 음성이 다시 Simli로 전달되어 아바타의 립싱크에 사용됩니다.
-    ```python
-    # File: run_bot.py
-    # Lines: 122-131
-    pipeline = Pipeline([
-    	transport.input(),
-    	rtvi,
-    	stt,
-    	agg.user(),
-    	llm,
-    	tts, # LLM의 출력이 TTS로 전달
-    	simli, # TTS의 출력이 Simli로 전달
-    	transport.output(),
-    	agg.assistant()
-    ])
-    ```
+### 3. API 명세
 
-#### 2. `tts/tts_service.py`의 TTSPipecService
-`TTSPipecService`는 외부 TTS 서버와 ZMQ(ZeroMQ)를 통해 통신하여 텍스트를 음성으로 변환하는 역할을 수행합니다.
+#### 3.1. 명령어 소켓 (기본: `tcp://*:5555`)
 
-*   **초기화 (`__init__`)**: 서버 주소, 포트, 기본 음성, 샘플링 속도 등 ZMQ 통신 및 TTS 합성에 필요한 기본 설정을 초기화합니다.
-    ```python
-    # File: tts/tts_service.py
-    # Lines: 35-50
-    class TTSPipecService(TTSService):
-        # ...
-        def __init__(
-            self,
-            *,
-            server_address: str = "211.105.40.72", # TTS 서버 주소
-            command_port: int = 5555,             # 명령어 포트
-            audio_port: int = 5556,               # 오디오 수신 포트
-            default_voice: str = "KR",            # 기본 음성
-            sample_rate: int = DEFAULT_SR,
-            # ...
-        ):
-            super().__init__(sample_rate=sample_rate, push_stop_frames=True, **kwargs)
-            # ...
-            self._settings = {
-                "voice": default_voice,
-                "speed": 1.0,
-                # ...
-            }
-    ```
-*   **음성 합성 요청 (`_send_generate_request`)**: 텍스트를 받아 ZMQ를 통해 TTS 서버에 음성 합성을 요청합니다. 요청 시 `job_id`, `text`, `voice`, `speed` 등의 파라미터를 전달합니다.
-    ```python
-    # File: tts/tts_service.py
-    # Lines: 136-159
-    async def _send_generate_request(self, job_id: str, text: str, gen: "FrameGenerator") -> bool:
-        # ...
-        while current_retry <= max_retries and job_id in self._active_generators:
-            try:
-                async with self._safe_cmd_communication() as sock:
-                    await sock.send_json({
-                        "command": "generate",
-                        "job_id": job_id,
-                        "text": text,
-                        "voice": self._settings["voice"],
-                        "speed": float(self._settings["speed"]),
-                        "target_sample_rate": self.sample_rate,
-                        "sample_format": "int16",
-                        "chunk_size": self._chunk_size,
-                    })
-                    # ...
-                    resp = await asyncio.wait_for(sock.recv_json(), timeout=self.REQUEST_TIMEOUT)
-                # ...
-                if resp.get("status") != "started":
-                    raise RuntimeError(f"TTS failed: {resp}")
-                return True
-            # ...
-    ```
-*   **오디오 수신 및 처리 (`_recv_audio`)**: TTS 서버로부터 생성된 오디오 데이터를 ZMQ PULL 소켓을 통해 비동기적으로 수신합니다. 수신된 데이터는 `TTSAudioRawFrame`으로 래핑되어 파이프라인의 다음 단계(Simli)로 전달됩니다.
-    ```python
-    # File: tts/tts_service.py
-    # Lines: 218-224
-    async def _recv_audio(self):
-        # ...
-        while self._active:
-            try:
-                # ...
-                parts = await self._audio_sock.recv_multipart() # 오디오 데이터 수신
-                # ...
-                if mtype == b"data": # 오디오 청크 데이터
-                    buf = self._audio_buffers.get(jid)
-                    if not buf:
-                        continue
-                    buf.write(data)
-                    # ...
-                    # flush 청크 (일정 크기마다 다음으로 전달)
-                    while buf.tell() >= self._chunk_size:
-                        # ...
-                        await self._push_pcm_chunks(jid, gen, chunk) # PCM 청크 푸시
-    ```
-*   **인터럽트 처리 (`_interrupt_all_jobs`, `process_frame`)**: 사용자가 말을 시작하는 등 인터럽트 상황이 발생하면 현재 진행 중인 TTS 작업을 중단하고, 대기열을 비웁니다.
-    ```python
-    # File: tts/tts_service.py
-    # Lines: 333-341
-    async def process_frame(self, frame, direction: str):
-        await super().process_frame(frame, direction)
-        if isinstance(frame, UserStartedSpeakingFrame): # 사용자가 말하기 시작하면
-            await self._interrupt_all_jobs() # 모든 TTS 작업 중단
-            try:
-                while not self._request_queue.empty():
-                    self._request_queue.get_nowait()
-                    self._request_queue.task_done()
-            except Exception as e:
-                logger.error(f"cleaning up request queue: {e}")
-    ```
+클라이언트는 REQ 소켓을 사용하여 서버의 REP 소켓에 JSON 형식으로 명령을 전송합니다.
 
-### 데이터 흐름 (Mermaid Sequence Diagram)
+**공통 요청 필드**:
+
+*   `job_id` (string): 각 요청을 식별하는 고유 ID (클라이언트 생성).
+*   `command` (string): 실행할 명령어.
+
+**지원 명령어**:
+
+1.  **`generate`**: 음성 생성을 요청합니다.
+    *   **추가 요청 필드**:
+        *   `text` (string): 음성으로 변환할 텍스트.
+        *   `voice` (string, optional): 사용할 음성 (예: "KR", "EN-US"). 모델 어댑터의 기본값 사용 가능.
+        *   `speed` (float, optional): 음성 속도 (기본값: 1.0).
+        *   `target_sample_rate` (int, optional): 목표 샘플링 레이트 (기본값: 서버 설정 또는 모델 기본값).
+        *   `chunk_size` (int, optional): 오디오 청크 크기 (샘플 단위, 기본값: 1024).
+    *   **응답**:
+        ```json
+        {"status": "started", "job_id": "요청된_job_id"}
+        ```
+
+2.  **`interrupt`**: 진행 중인 음성 생성 작업을 중단합니다.
+    *   **추가 요청 필드**:
+        *   `job_id` (string, optional): 중단할 특정 작업의 ID. 생략 시 모든 작업 중단.
+    *   **응답**:
+        ```json
+        {"status": "interrupted" | "not_found", "job_id": "요청된_job_id_또는_null"}
+        ```
+
+3.  **`list_voices`**: 사용 가능한 음성 목록을 요청합니다.
+    *   **응답**:
+        ```json
+        {"status": "success", "voices": ["voice1", "voice2", ...]}
+        ```
+
+**오류 응답**:
+요청 처리 중 문제 발생 시 다음과 같은 형식으로 응답합니다.
+```json
+{"status": "error", "message": "오류 설명"}
+```
+
+#### 3.2. 오디오 소켓 (기본: `tcp://*:5556`)
+
+서버는 PUSH 소켓을 사용하여 클라이언트의 PULL 소켓으로 멀티파트(Multipart) 메시지를 전송합니다.
+
+**메시지 형식**:
+
+*   **파트 1**: `job_id` (bytes, UTF-8 인코딩된 문자열) - 해당 오디오 데이터의 작업 ID.
+*   **파트 2**: 메시지 타입 (bytes)
+    *   `b"meta"`: 오디오 스트림의 메타데이터.
+    *   `b"data"`: 실제 오디오 데이터 청크.
+    *   `b"end"`: 오디오 스트림의 끝.
+    *   `b"error"`: 작업 중 오류 발생.
+*   **파트 3**: 페이로드 (bytes)
+    *   **`b"meta"`의 경우**: JSON 문자열. 예: `{"sample_rate": 24000, "format": "pcm", "channels": 1, "sample_format": "int16"}`
+    *   **`b"data"`의 경우**: Raw PCM int16 오디오 바이트.
+    *   **`b"end"`의 경우**: `b"completed"` (정상 종료) 또는 `b"interrupted"` (중단됨).
+    *   **`b"error"`의 경우**: 오류 메시지 문자열.
+
+### 4. 사용법
+
+#### 4.1. 서버 실행
+
+터미널에서 다음 명령어를 사용하여 TTS 서버를 실행합니다.
+
+```bash
+python tts_server.py --model [melo|kokoro] [추가_옵션]
+```
+
+**주요 실행 옵션**:
+
+*   `--model`: 사용할 TTS 모델 ("melo" 또는 "kokoro", 기본값: "melo").
+*   `--device`: MeloTTS 사용 시 장치 ("cpu", "cuda", "mps", 기본값: "cpu"이나 자동 감지 시도).
+*   `--kokoro-model`: KokoroTTS 모델 파일 경로 (기본값: `./KoKoro_models/kokoro-v1.0.onnx`).
+*   `--kokoro-voices`: KokoroTTS 음성 파일 경로 (기본값: `./KoKoro_models/voices-v1.0.bin`).
+*   `--workers`: 작업 처리를 위한 스레드 풀의 워커 수 (기본값: 4).
+*   `--debug`: 디버그 로깅 활성화.
+
+**예시**:
+MeloTTS를 CPU에서 실행:
+```bash
+python tts_server.py --model melo --device cpu
+```
+KokoroTTS를 기본 경로 모델로 실행:
+```bash
+python tts_server.py --model kokoro
+```
+
+#### 4.2. 클라이언트 연동 예시 (Python - `pyzmq`)
+
+다음은 `pyzmq` 라이브러리를 사용하여 TTS 서버에 음성 생성을 요청하고 오디오를 수신하는 간단한 클라이언트 예시입니다.
+
+```python
+import zmq
+import json
+import uuid
+
+# ZMQ 컨텍스트 초기화
+context = zmq.Context()
+
+# 명령어 소켓 설정 (REQ)
+cmd_socket = context.socket(zmq.REQ)
+cmd_socket.connect("tcp://localhost:5555")
+
+# 오디오 소켓 설정 (PULL)
+audio_socket = context.socket(zmq.PULL)
+audio_socket.connect("tcp://localhost:5556")
+
+# 고유 작업 ID 생성
+job_id = str(uuid.uuid4())
+
+# 음성 생성 요청 메시지
+request_msg = {
+    "command": "generate",
+    "job_id": job_id,
+    "text": "안녕하세요, 통합 TTS 서버 테스트입니다.",
+    "voice": "KR", # 사용하는 모델에 맞는 음성 지정
+    "target_sample_rate": 24000 # 서버/모델 기본값과 일치 권장
+}
+
+# 요청 전송 및 응답 수신
+print(f"[*] 요청 전송: {request_msg}")
+cmd_socket.send_json(request_msg)
+response = cmd_socket.recv_json()
+print(f"[*] 서버 응답: {response}")
+
+if response.get("status") == "started":
+    print(f"[*] 작업 {job_id} 시작됨. 오디오 수신 대기...")
+    
+    received_audio_chunks = []
+    
+    while True:
+        # 멀티파트 메시지 수신
+        msg_parts = audio_socket.recv_multipart()
+        
+        res_job_id = msg_parts[0].decode()
+        msg_type = msg_parts[1]
+        payload = msg_parts[2]
+
+        if res_job_id != job_id: # 다른 작업의 메시지는 무시
+            continue
+
+        if msg_type == b"meta":
+            metadata = json.loads(payload.decode())
+            print(f"[*] 메타데이터 수신: {metadata}")
+        elif msg_type == b"data":
+            received_audio_chunks.append(payload)
+            print(f"[*] 오디오 데이터 청크 수신: {len(payload)} bytes")
+        elif msg_type == b"end":
+            status = payload.decode()
+            print(f"[*] 스트림 종료: {status}")
+            break
+        elif msg_type == b"error":
+            error_msg = payload.decode()
+            print(f"[!] 오류 발생: {error_msg}")
+            break
+            
+    # received_audio_chunks 를 사용하여 오디오 파일 저장 또는 재생
+    if received_audio_chunks:
+        # 예: 파일로 저장 (메타데이터의 sample_rate, channels 등 활용)
+        # import wave
+        # with wave.open(f"{job_id}.wav", "wb") as wf:
+        #     wf.setnchannels(metadata.get('channels', 1))
+        #     wf.setsampwidth(2) # int16 is 2 bytes
+        #     wf.setframerate(metadata.get('sample_rate', 24000))
+        #     wf.writeframes(b"".join(received_audio_chunks))
+        # print(f"[*] 오디오 파일 저장 완료: {job_id}.wav")
+        pass
+
+# 소켓 정리
+cmd_socket.close()
+audio_socket.close()
+context.term()
+```
+
+### 5. 아키텍처 통합
+
+`UnifiedTTSServer`는 TTS 기능이 필요한 다양한 애플리케이션의 백엔드 서비스 역할을 합니다.
+
+*   **느슨한 결합**: ZeroMQ를 통한 통신은 클라이언트와 서버 간의 의존성을 낮춰, 각기 다른 언어나 환경으로 개발된 시스템 간 연동을 용이하게 합니다.
+*   **모델 확장성**: `TTSModelAdapter` 인터페이스(`utils.tts.TTSModelAdapter`)를 구현함으로써 새로운 TTS 엔진을 쉽게 추가하고 서버에서 사용할 수 있도록 설계되었습니다. 서버 코어 로직 변경 없이 모델을 교체하거나 추가하는 것이 가능합니다.
+    *   예: `MeloTTSAdapter`는 MeloTTS 라이브러리를, `KokoroTTSAdapter`는 KokoroTTS ONNX 모델을 사용합니다.
+*   **오디오 처리 유틸리티**: `utils.AudioConverter`는 오디오 데이터의 포맷 변환(float32 ↔ int16), 리샘플링, 청킹 등 서버 내부에서 필요한 오디오 처리 작업을 담당합니다.
+*   **작업 관리**: `self.jobs` 딕셔너리를 통해 현재 진행 중인 작업들의 상태(취소 이벤트, Future 객체)를 추적하고 관리합니다.
+
+### 6. 요청 처리 흐름 (Mermaid 다이어그램)
+
+다음은 클라이언트가 `generate` 명령을 통해 음성 합성을 요청했을 때의 주요 상호작용 흐름입니다.
 
 ```mermaid
 sequenceDiagram
     participant Client as 클라이언트
-    participant RunBot as run_bot.py
-    participant LLM as LLM 서비스
-    participant TTS as TTSPipecService
-    participant Simli as SimliVideoService
+    participant CmdSock as "명령 소켓 (5555)"
+    participant AudioSock as "오디오 소켓 (5556)"
+    participant ServerCore as "UnifiedTTSServer"
+    participant Worker as "작업 스레드 (_worker)"
+    participant Sender as "전송 스레드 (_sender)"
+    participant TTSAdapter as "TTS 모델 어댑터"
 
-    Client->>RunBot: WebRTC 연결 및 오디오 스트림
-    Note over RunBot: STT 처리
-    RunBot->>LLM: 사용자 발화 텍스트
-    LLM-->>RunBot: LLM 응답 텍스트
-    RunBot->>TTS: LLM 응답 텍스트 (음성 합성 요청)
-    activate TTS
-    Note over TTS: ZMQ 통해 TTS 서버와 통신
-    TTS-->>RunBot: 합성된 오디오 스트림 (TTSAudioRawFrame)
-    deactivate TTS
-    RunBot->>Simli: 오디오 스트림 (립싱크용)
-    activate Simli
-    Note over Simli: 음성에 맞춰 아바타 비디오 생성
-    Simli-->>RunBot: 립싱크된 비디오 스트림
-    deactivate Simli
-    RunBot-->>Client: 최종 오디오 및 비디오 스트림 전송
-```
+    Client->>CmdSock: TTS 생성 요청 (JSON: command="generate", job_id, text, ...)
+    activate CmdSock
+    CmdSock->>ServerCore: _process_cmd(요청) 호출
+    activate ServerCore
+    CmdSock-->>Client: 요청 시작됨 응답 (JSON: status="started")
+    deactivate CmdSock
 
-### 전체 아키텍처와의 통합
-음성 합성과 아바타 연동 기능은 PipeChat_server의 핵심 파이프라인 내에 통합되어 있습니다.
-1.  사용자의 음성은 STT 서비스를 통해 텍스트로 변환됩니다.
-2.  변환된 텍스트는 LLM 서비스로 전달되어 AI의 응답 텍스트를 생성합니다.
-3.  LLM이 생성한 텍스트는 `TTSPipecService`로 전달되어 자연스러운 음성 오디오로 변환됩니다.
-4.  생성된 음성 오디오는 `SimliVideoService`로 전달되어 아바타의 입 모양과 동기화된 비디오 스트림을 생성합니다.
-5.  최종적으로, 합성된 음성 오디오와 아바타 비디오는 WebRTC를 통해 클라이언트에게 실시간으로 스트리밍됩니다.
+    ServerCore->>Sender: 전송 스레드 시작 (job_id, 오디오 큐)
+    activate Sender
+    ServerCore->>Worker: 오디오 생성 작업 할당 (요청, 취소 이벤트, 오디오 큐, 인사말 여부)
+    deactivate ServerCore
+    activate Worker
 
-이러한 통합을 통해 사용자는 AI와 텍스트뿐만 아니라 음성 및 시각적 아바타를 통해 보다 풍부하고 인터랙티브한 대화 경험을 할 수 있습니다. `run_bot.py`는 이러한 서비스들을 파이프라인으로 엮어 전체 흐름을 제어하는 중심 역할을 합니다.
+    Worker->>AudioSock: 메타데이터 전송 (_send_audio 호출)
+    activate AudioSock
+    AudioSock-->>Client: 메타데이터 (job_id, b"meta", JSON)
+    deactivate AudioSock
+    
+    opt 인사말 재생 조건 충족 시
+        Worker->>Worker: _get_prepared_greeting_xx() 호출
+        Worker->>Sender: 준비된 인사말 청크를 오디오 큐에 추가 (_send_prepared_audio)
+    end
 
-<p>Sources: <a href="https://github.com/donggyun112/PipeChat_server/blob/main/tts/tts_service.py" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">tts/tts_service.py</a>, <a href="https://github.com/donggyun112/PipeChat_server/blob/main/run_bot.py" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">run_bot.py</a></p>
+    Worker->>TTSAdapter: generate_audio(text, voice, speed, ...) 호출
+    activate TTSAdapter
+    TTSAdapter-->>Worker: 생성된 오디오 데이터 (numpy array), 실제 샘플링 레이트
+    deactivate TTSAdapter
+
+    Worker->>Worker: 오디오 처리 (리샘플링, int16 변환, 청킹)
+    loop 각 오디오 청크에 대해
+        Worker->>Sender: 오디오 청크를 오디오 큐에 추가
+    end
+    Worker->>Sender: 작업 완료 신호 (None)를 오디오 큐에 추가
+    deactivate Worker
+
+    activate Sender # 이미 활성화되어 있을 수 있음, 큐에서 아이템 가져오기 시작
+    loop 오디오 큐에 아이템이 있는 동안 (또는 완료/오류 신호까지)
+        Sender->>AudioSock: 오디오 데이터/신호 전송 (_send_audio 호출)
+        activate AudioSock
+        alt 오디오 데이터
+            AudioSock-->>Client: 오디오 청크 (job_id, b"data", bytes)
+        else 종료 신호
+            AudioSock-->>Client: 종료 신호 (job_id, b"end", "completed" or "interrupted")
+        else 오류 신호
+            AudioSock-->>Client: 오류 신호 (job_id, b"error", "error message")
+        end
+        deactivate AudioSock
+    end
+    deactivate Sender
+
 
 ---
 
 <a id='page-5'></a>
 
-## WebRTC 통신 및 클라이언트 인터페이스
+## MeloTTS 상세 가이드
 
 ### Related Files
 
-- `server.py`
-- `static/src/app.js`
-- `run_bot.py`
-- `static/index.html`
+- `MeloTTS/README.md`
+- `MeloTTS/docs/install.md`
+- `MeloTTS/docs/quick_use.md`
+- `MeloTTS/docs/training.md`
+- `MeloTTS/melo/api.py`
+- `MeloTTS/melo/main.py`
 
 ### Related Pages
 
-Related topics: [프로젝트 개요 및 아키텍처](#page-1)
+Related topics: [TTS 모델 연동](#page-3)
 
-## WebRTC 통신 및 클라이언트 인터페이스
+# MeloTTS 상세 가이드
 
-### 개요
+## 서론
 
-WebRTC (Web Real-Time Communication) 통신 및 클라이언트 인터페이스는 PipeChat\_server 프로젝트에서 실시간으로 사용자와 AI 봇 간의 오디오 및 비디오 스트리밍, 그리고 관련 제어 메시지 교환을 가능하게 하는 핵심 구성 요소입니다. 사용자는 웹 브라우저를 통해 봇과 상호작용하며, 이 과정에서 WebRTC 기술이 활용되어 지연 시간이 짧은 양방향 통신을 구현합니다.
+MeloTTS는 MIT와 MyShell.ai가 개발한 고품질 다국어 음성 합성(TTS) 라이브러리입니다. 이 가이드는 `donggyun112/tts_server` 리포지토리 내의 MeloTTS 관련 파일들을 중심으로 MeloTTS의 설치, 사용법, 학습 방법 및 `tts_server`와의 통합에 대해 상세히 설명합니다.
 
-### 주요 기능 및 목적
+## 주요 기능 및 목적
 
-*   **실시간 양방향 미디어 스트리밍**: 사용자의 마이크 음성을 서버로 전송하고, 서버에서 생성된 봇의 음성 및 비디오(아바타)를 클라이언트로 스트리밍합니다.
-*   **시그널링 처리**: WebRTC 연결 설정을 위한 SDP(Session Description Protocol) 교환 및 ICE(Interactive Connectivity Establishment) 후보 교환을 서버(`server.py`)와 클라이언트(`static/src/app.js`) 간에 수행합니다.
-*   **클라이언트 인터페이스 제공**: 사용자가 봇과 상호작용할 수 있는 웹 페이지(`static/index.html`)를 제공하며, 연결 시작/종료, 미디어 상태 표시 등의 기능을 포함합니다.
-*   **봇 파이프라인 연동**: `server.py`에서 생성된 WebRTC 전송 계층(`SmallWebRTCTransport`)은 `run_bot.py`의 파이프라인에 전달되어, 봇의 STT, LLM, TTS, 비디오 생성 서비스와 클라이언트 간의 데이터를 주고받습니다.
+MeloTTS는 다양한 언어와 억양을 지원하며, 특히 중국어의 경우 중국어와 영어 혼합 발화를 지원합니다. CPU 환경에서도 실시간 추론이 가능할 정도로 빠릅니다.
 
-### 구성 요소
+지원 언어 예시:
+*   영어 (미국, 영국, 인도, 호주, 기본)
+*   스페인어
+*   프랑스어
+*   중국어 (영어 혼합 가능)
+*   일본어
+*   한국어
 
-#### 1. 서버 (`server.py`)
+<p>Sources: <a href="https://github.com/donggyun112/tts_server/blob/main/MeloTTS/README.md" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">MeloTTS/README.md</a></p>
 
-FastAPI를 사용하여 WebRTC 시그널링 엔드포인트(SDP offer/answer, ICE candidate 교환)를 제공하고, 각 클라이언트 연결에 대한 `SmallWebRTCConnection` 및 `SmallWebRTCTransport` 객체를 관리합니다. 새로운 WebRTC 연결이 수립되면, 해당 연결을 위한 봇 파이프라인(`run_bot.py`)을 비동기적으로 실행합니다.
+## 설치 및 설정
 
-*   **주요 역할**:
-    *   WebRTC 핸드셰이크 및 시그널링 (offer, answer, ICE).
-    *   `SmallWebRTCTransport` 인스턴스 생성 및 관리.
-    *   클라이언트 연결마다 `run_bot.py`의 봇 파이프라인 실행.
-    *   정적 클라이언트 파일 (`index.html`, `app.js`) 제공.
+MeloTTS를 로컬 환경에서 사용하기 위한 설치 방법입니다.
 
-*   **코드 예시 (SDP Offer 처리 로직 중 일부)**:
-    ```python
-    # server.py
-    async def offer_logic(body: dict, background_tasks: BackgroundTasks) -> dict:
-        """SDP 오퍼 처리 및 WebRTC 연결 설정"""
-        sdp = body.get("sdp")
-        typ = body.get("type")
-        pc_id = body.get("pc_id") or body.get("client_id")
-        # ...
-        if pc_id and pc_id in pcs and not restart_pc:
-            # 기존 연결로 재협상
-            conn, _, _ = pcs[pc_id]
-            await conn.renegotiate(sdp=sdp, type=typ)
-        else:
-            # ...
-            # 새 연결 생성
-            conn = SmallWebRTCConnection(ice_servers=STUN_SERVERS)
-            transport = SmallWebRTCTransport(
-                webrtc_connection=conn,
-                params=TransportParams(
-                    audio_in_enabled=True,
-                    # ...
-                    video_out_enabled=True,
-                    video_out_width=512, # Simli 비디오 크기에 맞춤
-                    video_out_height=512,
-                )
-            )
-            # ...
-            background_tasks.add_task(run_bot, conn, transport, pcs) # 봇 실행
-            # ...
-        answer = await conn.get_local_description(sdp=sdp, type=typ)
-        # ...
-        return answer
+### Linux 및 macOS 설치
+
+Python 3.9 및 Ubuntu 20.04 환경에서 개발 및 테스트되었습니다.
+```bash
+git clone https://github.com/myshell-ai/MeloTTS.git
+cd MeloTTS
+pip install -e .
+python -m unidic download
+```
+macOS에서 문제 발생 시 Docker 설치를 권장합니다.
+
+### Docker 설치
+
+Windows 및 일부 macOS 사용자는 호환성 문제를 피하기 위해 Docker 사용이 권장됩니다.
+**Docker 빌드:**
+```bash
+git clone https://github.com/myshell-ai/MeloTTS.git
+cd MeloTTS
+docker build -t melotts .
+```
+**Docker 실행:**
+```bash
+# CPU 사용 시
+docker run -it -p 8888:8888 melotts
+# GPU 사용 시
+docker run --gpus all -it -p 8888:8888 melotts
+```
+이후 브라우저에서 `http://localhost:8888`로 접속하여 사용합니다.
+
+<p>Sources: <a href="https://github.com/donggyun112/tts_server/blob/main/MeloTTS/docs/install.md" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">MeloTTS/docs/install.md</a></p>
+
+## 빠른 사용법
+
+MeloTTS를 설치 없이 빠르게 사용해볼 수 있는 방법입니다.
+
+*   **공식 라이브 데모:** [MyShell](https://app.myshell.ai/bot/UN77N3/1709094629)
+*   **Hugging Face Space 라이브 데모:** [Hugging Face](https://huggingface.co/spaces/mrfakename/MeloTTS)
+
+MyShell 플랫폼에서는 MeloTTS 외에도 수백 가지의 다양한 TTS 모델을 사용해볼 수 있습니다.
+
+<p>Sources: <a href="https://github.com/donggyun112/tts_server/blob/main/MeloTTS/docs/quick_use.md" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">MeloTTS/docs/quick_use.md</a></p>
+
+## 로컬 사용법
+
+로컬에 설치 후 MeloTTS를 사용하는 방법은 WebUI, CLI, Python API 세 가지가 있습니다.
+
+### WebUI
+
+다국어 및 다양한 음성을 지원하는 웹 인터페이스입니다. 설치 후 다음 명령어로 실행합니다:
+```bash
+melo-ui
+# 또는
+# python melo/app.py
+```
+`MeloTTS/melo/app.py` 파일은 Gradio를 사용하여 WebUI를 구성하며, 사용자가 언어, 화자, 속도, 텍스트를 입력하면 음성을 합성하여 들려줍니다.
+
+### CLI (Command Line Interface)
+
+`melo` 또는 `melotts` 명령어를 통해 사용할 수 있습니다.
+**기본 사용법 (영어):**
+```bash
+melo "Text to read" output.wav
+```
+**언어 지정:**
+```bash
+melo "Text to read" output.wav --language EN
+```
+**화자 지정 (영어만 해당):**
+```bash
+melo "Text to read" output.wav --language EN --speaker EN-US
+```
+**속도 지정:**
+```bash
+melo "Text to read" output.wav --speed 1.5
+```
+**다른 언어 사용 (예: 중국어):**
+```bash
+melo "text-to-speech 领域近年来发展迅速" zh.wav -l ZH
+```
+`MeloTTS/melo/main.py` 파일이 이 CLI 기능을 구현합니다. `click` 라이브러리를 사용하여 명령어 인자를 파싱하고, `melo.api.TTS`를 호출하여 음성을 생성합니다.
+
+### Python API
+
+Python 코드 내에서 MeloTTS를 직접 호출하여 사용할 수 있습니다.
+```python
+from melo.api import TTS
+
+# 속도 조절 가능
+speed = 1.0
+# 'auto', 'cpu', 'cuda', 'mps' 등 설정 가능
+device = 'auto' 
+
+# 예시: 한국어
+text = "안녕하세요! 오늘은 날씨가 정말 좋네요."
+model = TTS(language='KR', device=device)
+speaker_ids = model.hps.data.spk2id
+
+output_path = 'kr.wav'
+# 한국어는 기본 화자 ID 'KR' 사용
+model.tts_to_file(text, speaker_ids['KR'], output_path, speed=speed)
+```
+`MeloTTS/melo/api.py`의 `TTS` 클래스를 통해 다양한 언어와 화자로 음성 합성이 가능합니다.
+
+<p>Sources: <a href="https://github.com/donggyun112/tts_server/blob/main/MeloTTS/docs/install.md" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">MeloTTS/docs/install.md</a>, <a href="https://github.com/donggyun112/tts_server/blob/main/MeloTTS/melo/app.py" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">MeloTTS/melo/app.py</a>, <a href="https://github.com/donggyun112/tts_server/blob/main/MeloTTS/melo/main.py" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">MeloTTS/melo/main.py</a></p>
+
+## 학습
+
+커스텀 데이터셋으로 MeloTTS 모델을 학습시킬 수 있습니다.
+
+### 데이터 준비
+
+1.  MeloTTS를 개발 모드로 설치하고 `melo` 폴더로 이동합니다.
+    ```bash
+    pip install -e .
+    cd melo
     ```
-
-<p>Sources: <a href="https://github.com/donggyun112/PipeChat_server/blob/main/server.py" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">server.py</a></p>
-
-#### 2. 클라이언트 UI (`static/index.html`)
-
-사용자가 웹 브라우저에서 봇과 상호작용하는 기본 HTML 구조입니다. 봇의 비디오를 표시할 `<video>` 태그, 봇의 음성을 재생할 `<audio>` 태그, 그리고 연결 제어 버튼 등을 포함합니다. `@pipecat-ai/client-js`와 `@pipecat-ai/small-webrtc-transport` 라이브러리를 임포트하여 사용합니다.
-
-*   **주요 역할**:
-    *   사용자 인터페이스 레이아웃 정의.
-    *   봇 비디오 및 오디오 재생 요소 배치.
-    *   연결 제어 버튼 및 레이턴시 정보 표시 영역 제공.
-    *   `app.js` 스크립트 로드.
-
-*   **코드 예시 (미디어 요소 및 버튼)**:
-    ```html
-    <!-- static/index.html -->
-    <div class="control-bar">
-      <button id="startButton" class="primary">연결 시작</button>
-      <button id="stopButton" class="danger" disabled>연결 종료</button>
-    </div>
-
-    <div class="video-wrapper">
-      <video id="botVideo" autoplay playsinline muted></video>
-    </div>
-    <!-- ... -->
-    <audio id="botAudio" autoplay></audio>
-
-    <script type="module" src="src/app.js"></script>
+2.  오디오 파일(권장: 44100Hz)과 메타데이터 파일을 준비합니다. 메타데이터 파일 형식은 다음과 같습니다:
     ```
-
-<p>Sources: <a href="https://github.com/donggyun112/PipeChat_server/blob/main/static/index.html" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">static/index.html</a></p>
-
-#### 3. 클라이언트 로직 (`static/src/app.js`)
-
-WebRTC 연결 설정, 미디어 스트림 처리, 사용자 인터랙션 및 서버로부터의 이벤트 처리를 담당하는 JavaScript 코드입니다. `RTVIClient`를 사용하여 서버와 통신하고, `SmallWebRTCTransport`를 통해 WebRTC 연결을 관리합니다.
-
-*   **주요 역할**:
-    *   서버에 WebRTC 연결 요청 및 시그널링 메시지 교환.
-    *   로컬 마이크 오디오 트랙 캡처 및 서버로 전송.
-    *   서버로부터 수신된 봇의 오디오 및 비디오 트랙 재생.
-    *   UI 요소(버튼 상태, 레이턴시 표시) 업데이트.
-    *   `botReady`, `userStartedSpeaking`, `botStartedSpeaking` 등 RTVI 이벤트 처리.
-    *   서버로부터의 인터럽트 메시지 처리.
-
-*   **코드 예시 (RTVIClient 초기화 및 연결)**:
-    ```javascript
-    // static/src/app.js
-    import { RTVIClient } from "@pipecat-ai/client-js";
-    import { SmallWebRTCTransport } from "@pipecat-ai/small-webrtc-transport";
-
-    // ...
-
-    function initializeClient() {
-      const transport = new SmallWebRTCTransport({
-        iceServers: [
-          { urls: "stun:stun.l.google.com:19302" },
-          { urls: "stun:stun1.l.google.com:19302" }
-        ],
-        debug: true,
-        videoProcessingEnabled: true
-      });
-
-      const rtviClient = new RTVIClient({
-        transport,
-        enableMic: true, // 초기 마이크 활성화 (나중에 트랙 수신 시 제어)
-        enableCam: false,
-        enableVideoReceive: true,
-        params: {
-          baseUrl: "http://localhost:8080", // 서버 주소
-          endpoints: { connect: "/offer" }
-        }
-      });
-      // ... 이벤트 핸들러 등록 ...
-      return rtviClient;
-    }
-
-    async function handleStartConnection() {
-      // ...
-      rtviClient = initializeClient();
-      await rtviClient.connect();
-      // ...
-    }
+    path/to/audio_001.wav|<speaker_name>|<language_code>|<text_001>
+    path/to/audio_002.wav|<speaker_name>|<language_code>|<text_002>
     ```
-
-<p>Sources: <a href="https://github.com/donggyun112/PipeChat_server/blob/main/static/src/app.js" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">static/src/app.js</a></p>
-
-#### 4. 봇 실행 로직 (`run_bot.py`)
-
-서버로부터 WebRTC 연결(`SmallWebRTCConnection`)과 전송 계층(`SmallWebRTCTransport`)을 받아, 실제 AI 봇의 파이프라인을 구성하고 실행합니다. 이 파이프라인은 STT, LLM, TTS, Simli 비디오 서비스 등을 포함하며, `transport.input()`을 통해 클라이언트의 오디오를 받고, `transport.output()`을 통해 봇의 오디오 및 비디오를 클라이언트로 전송합니다. `RTVIProcessor`를 사용하여 클라이언트와 풍부한 상호작용 이벤트를 주고받습니다.
-
-*   **주요 역할**:
-    *   Pipecat 파이프라인 구성 (STT, LLM, TTS, Simli 비디오 등).
-    *   WebRTC 전송 계층을 통해 클라이언트와 미디어 및 데이터 교환.
-    *   `RTVIProcessor`를 사용하여 `botReady` 등의 상태를 클라이언트에 알림.
-    *   인터럽션 처리 로직 활성화.
-
-*   **코드 예시 (파이프라인 구성 중 일부)**:
-    ```python
-    # run_bot.py
-    async def run_bot(connection: SmallWebRTCConnection, transport: SmallWebRTCTransport, pcs):
-        # ... LLM, TTS, Simli 등 서비스 초기화 ...
-
-        rtvi = RTVIProcessor(config=RTVIConfig(config=[]), transport=transport)
-        # ...
-        stt = WhisperSTTService(model_name=whisper_model)
-        # ...
-        pipeline = Pipeline([
-            transport.input(),  # 클라이언트로부터 오디오/데이터 수신
-            rtvi,
-            stt,
-            agg.user(),
-            llm,
-            tts,
-            simli,              # Simli 비디오 생성
-            transport.output(), # 클라이언트로 오디오/비디오/데이터 전송
-            agg.assistant()
-        ])
-
-        pipeline_task = PipelineTask(
-            pipeline,
-            params=PipelineParams(
-                allow_interruptions=True, # 인터럽션 허용
-                # ...
-            ),
-            observers=[RTVIObserver(rtvi)],
-        )
-        # ... 파이프라인 실행 ...
-        await runner.run(pipeline_task)
+    예시: `data/example/metadata.list`
+3.  텍스트 전처리 코드를 실행합니다:
+    ```bash
+    python preprocess_text.py --metadata data/example/metadata.list
     ```
+    `data/example/config.json` 설정 파일이 생성되며, 필요에 따라 배치 크기 등을 수정할 수 있습니다.
 
-<p>Sources: <a href="https://github.com/donggyun112/PipeChat_server/blob/main/run_bot.py" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">run_bot.py</a></p>
+### 학습 실행
 
-### WebRTC 통신 흐름
+다음 스크립트를 사용하여 학습을 시작합니다:
+```bash
+bash train.sh <path/to/config.json> <num_of_gpus>
+```
+`train.sh`는 Gloo 관련 이슈로 인한 학습 중단을 방지하기 위해 자동 재개 래퍼를 포함하고 있습니다.
 
-다음은 클라이언트와 서버 간의 WebRTC 연결 설정 및 미디어 스트리밍 과정을 나타내는 시퀀스 다이어그램입니다.
+<p>Sources: <a href="https://github.com/donggyun112/tts_server/blob/main/MeloTTS/docs/training.md" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">MeloTTS/docs/training.md</a></p>
+
+## MeloTTS API (`MeloTTS/melo/api.py`)
+
+`MeloTTS/melo/api.py` 파일은 MeloTTS의 핵심 Python API를 제공합니다. `TTS` 클래스가 주요 인터페이스입니다.
+
+*   **`TTS(language, device, use_hf=True, config_path=None, ckpt_path=None)`**:
+    *   `language`: 'EN', 'ES', 'FR', 'ZH', 'JP', 'KR' 등 언어 코드.
+    *   `device`: 'auto', 'cpu', 'cuda', 'mps' 등 모델 실행 장치.
+    *   `use_hf`: Hugging Face Hub에서 모델을 다운로드할지 여부.
+    *   `config_path`, `ckpt_path`: 사용자 정의 모델 경로.
+*   **`tts_to_file(text, speaker_id, output_path, speed=1.0, format='wav', pbar=None)`**:
+    *   주어진 텍스트를 음성으로 변환하여 파일로 저장합니다.
+    *   `speaker_id`: `model.hps.data.spk2id` 딕셔너리에서 얻을 수 있는 화자 ID.
+    *   `output_path`: 저장될 오디오 파일 경로.
+    *   `speed`: 음성 재생 속도.
+    *   `format`: 출력 파일 형식 ('wav', 'mp3' 등).
+*   **`tts_to_bytesio(text, speaker_id, speed=1.0, format='wav', pbar=None)`**:
+    *   텍스트를 음성으로 변환하여 `io.BytesIO` 객체로 반환합니다.
+*   **`hps`**: 모델의 하이퍼파라미터 및 설정을 담고 있는 객체. `hps.data.spk2id`를 통해 사용 가능한 화자 ID를 조회할 수 있습니다.
+
+이 API를 통해 프로그래밍 방식으로 MeloTTS의 음성 합성 기능을 쉽게 통합하고 제어할 수 있습니다.
+
+## MeloTTS CLI (`MeloTTS/melo/main.py`)
+
+`MeloTTS/melo/main.py`는 MeloTTS의 커맨드 라인 인터페이스를 구현합니다. `click` 라이브러리를 사용하여 사용자 친화적인 CLI를 제공합니다.
+
+주요 명령어 형식:
+```bash
+melo [OPTIONS] TEXT OUTPUT_PATH
+```
+*   `TEXT`: 음성으로 변환할 텍스트 또는 텍스트 파일 경로 ( `--file` 옵션 사용 시).
+*   `OUTPUT_PATH`: 생성된 오디오 파일을 저장할 경로.
+
+주요 옵션:
+*   `--file`, `-f`: `TEXT` 인자가 파일 경로임을 나타냅니다.
+*   `--language`, `-l`: 사용할 언어 (기본값: 'EN'). 선택 가능: 'EN', 'ES', 'FR', 'ZH', 'JP', 'KR'.
+*   `--speaker`, `-spk`: 사용할 화자 ID (영어의 경우에만 유효, 기본값: 'EN-Default').
+*   `--speed`, `-s`: 음성 재생 속도 (기본값: 1.0).
+*   `--device`, `-d`: 모델 실행 장치 (기본값: 'auto').
+
+예시:
+```bash
+# 한국어 텍스트를 기본 속도로 ko_output.wav 파일에 저장
+melo "안녕하세요, 멜로TTS입니다." ko_output.wav -l KR
+
+# 영어 텍스트를 미국 영어 화자로, 1.2배 속도로 en_output.wav 파일에 저장
+melo "Hello, this is MeloTTS." en_output.wav -l EN -spk EN-US -s 1.2
+```
+이 CLI는 간단한 음성 합성을 빠르게 수행하거나 스크립트에 통합하는 데 유용합니다.
+
+<p>Sources: <a href="https://github.com/donggyun112/tts_server/blob/main/MeloTTS/melo/main.py" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">MeloTTS/melo/main.py</a></p>
+
+## `tts_server` 와의 통합
+
+`donggyun112/tts_server` 프로젝트는 MeloTTS를 핵심 음성 합성 엔진 중 하나로 활용합니다. 이 통합은 `utils/tts.py` 파일의 `MeloTTSAdapter` 클래스를 통해 이루어집니다.
+
+*   **`MeloTTSAdapter(TTSModelAdapter)`**:
+    *   `TTSModelAdapter` 추상 클래스를 상속받아 MeloTTS의 기능을 `tts_server`의 표준 인터페이스에 맞게 구현합니다.
+    *   `initialize()`: 필요한 언어의 MeloTTS 모델을 로드하고 초기화합니다. 각 언어 모델은 `self.models` 딕셔너리에 저장됩니다.
+    *   `warmup()`: 모델 워밍업을 수행하여 첫 요청 시 지연을 줄입니다.
+    *   `generate_audio_chunk()`: 실제 음성 합성을 수행하는 메서드. 내부적으로 `melo.api.TTS`의 `tts_to_bytesio`를 호출하여 오디오 데이터를 생성하고, 이를 NumPy 배열로 변환합니다.
+    *   `split_sentences()`: MeloTTS의 문장 분리 기능을 사용하여 텍스트를 문장 단위로 나눕니다.
+    *   `list_voices()`: 사용 가능한 화자 목록을 반환합니다. MeloTTS의 경우, 언어별 기본 화자만 제공되거나, 영어의 경우 다양한 억양의 화자를 제공합니다.
+
+`tts_server.py`의 `UnifiedTTSServer` 클래스는 `--model melo` 옵션이 주어질 때 `MeloTTSAdapter`를 인스턴스화하여 사용합니다.
+```python
+# tts_server.py (일부)
+if args.model == "melo":
+    # ... device 설정 ...
+    model_adapter = MeloTTSAdapter(device=dev)
+else:  # kokoro
+    # ...
+    pass
+
+server = UnifiedTTSServer(model_adapter=model_adapter, max_workers=args.workers)
+server.start()
+```
+`UnifiedTTSServer`는 `model_adapter` (이 경우 `MeloTTSAdapter`)를 통해 음성 생성(`_worker` 메서드 내에서 `self.model_adapter.generate_audio_stream` 호출), 화자 목록 조회 등의 TTS 관련 작업을 처리합니다.
+
+이러한 아키텍처를 통해 `tts_server`는 MeloTTS 외 다른 TTS 엔진으로도 쉽게 확장할 수 있으며, 일관된 방식으로 다양한 TTS 모델을 관리하고 제공할 수 있습니다.
+
+<p>Sources: <a href="https://github.com/donggyun112/tts_server/blob/main/tts_server.py" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">tts_server.py</a>, <a href="https://github.com/donggyun112/tts_server/blob/main/utils/tts.py" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">utils/tts.py</a></p>
+
+## MeloTTS 사용 흐름도
+
+다음은 MeloTTS를 사용하는 일반적인 흐름을 나타낸 다이어그램입니다.
 
 ```mermaid
-sequenceDiagram
-    participant Client (app.js)
-    participant Server (server.py)
-    participant BotPipeline (run_bot.py)
-
-    Client->>Server: HTTP POST /offer (연결 요청)
-    activate Server
-    Server-->>Client: ICE 서버 정보
-    deactivate Server
-
-    Client->>Server: HTTP POST /offer (SDP Offer)
-    activate Server
-    Server->>BotPipeline: run_bot(connection, transport) 시작
-    activate BotPipeline
-    Server-->>Client: SDP Answer
-    deactivate Server
-
-    loop ICE Candidate 교환
-        Client->>Server: HTTP POST /ice (Candidate)
-        activate Server
-        Server-->>Client: (필요시) Candidate
-        deactivate Server
-    end
-
-    BotPipeline->>Client: BotReady (via RTVIProcessor & transport)
-    Client<->>BotPipeline: WebRTC 미디어 스트림 (오디오/비디오)
-    
-    Note over Client, BotPipeline: 사용자와 봇 실시간 상호작용
-
-    Client->>Server: 연결 종료 요청 (예: stopButton 클릭)
-    activate Server
-    Server->>BotPipeline: 파이프라인 태스크 취소
-    BotPipeline-->>Server: 정리 완료
-    deactivate BotPipeline
-    Server-->>Client: 연결 종료 확인
-    deactivate Server
+graph TD
+    A([입력 텍스트]) --> B{사용 방법 선택};
+    B -->|Python API| C[TTS 객체 생성\n(melo.api.TTS)];
+    C --> D[tts_to_file() / tts_to_bytesio()\n호출];
+    D --> E([생성된 오디오]);
+    B -->|CLI (melo)| F[melo 명령어 실행\n(melo.main)];
+    F --> G[내부적으로 TTS API 사용];
+    G --> E;
+    B -->|WebUI (Gradio)| H[웹 인터페이스 사용\n(melo.app)];
+    H --> I[내부적으로 TTS API 사용];
+    I --> E;
+    B -->|tts_server 연동| J[MeloTTSAdapter 사용\n(utils.tts)];
+    J --> K[내부적으로 TTS API 사용];
+    K --> E;
 ```
 
-**흐름 설명:**
+## 관련 파일 소스 링크
 
-1.  **연결 시작**: 클라이언트(`app.js`)가 "연결 시작" 버튼을 누르면, `handleStartConnection` 함수가 호출되어 `RTVIClient`를 초기화하고 서버(`server.py`)의 `/offer` 엔드포인트로 첫 연결 요청을 보냅니다.
-2.  **초기 응답**: 서버는 ICE 서버 목록 등의 초기 정보를 응답합니다.
-3.  **SDP Offer 전송**: 클라이언트는 WebRTC 연결을 위한 SDP Offer를 생성하여 서버의 `/offer` 엔드포인트로 전송합니다.
-4.  **봇 파이프라인 실행**: 서버는 SDP Offer를 받고, `SmallWebRTCConnection`과 `SmallWebRTCTransport`를 생성한 후, 이들을 인자로 하여 `run_bot.py`의 `run_bot` 함수를 백그라운드 태스크로 실행합니다.
-5.  **SDP Answer 전송**: 서버는 로컬 SDP Answer를 생성하여 클라이언트에게 응답합니다.
-6.  **ICE Candidate 교환**: 클라이언트와 서버는 네트워크 경로 설정을 위해 ICE Candidate들을 서로 교환합니다 (`/ice` 엔드포인트 사용).
-7.  **BotReady**: `BotPipeline`이 준비되면 `RTVIProcessor`를 통해 `BotReady` 이벤트를 클라이언트로 전송합니다.
-8.  **미디어 스트리밍**: WebRTC 연결이 완전히 수립되면, 클라이언트의 음성은 `BotPipeline`으로, `BotPipeline`에서 생성된 봇의 음성 및 비디오는 클라이언트로 실시간 스트리밍됩니다.
-9.  **상호작용**: 사용자는 봇과 대화하며, STT, LLM, TTS 과정을 거쳐 응답을 받습니다. 인터럽트 발생 시(`allow_interruptions=True`), 봇의 발화가 중단될 수 있습니다.
-10. **연결 종료**: 사용자가 "연결 종료" 버튼을 누르면, 클라이언트는 서버에 연결 종료를 알리고, 서버는 관련된 `PipelineTask`를 취소하고 WebRTC 연결을 정리합니다.
-
-### 클라이언트 인터페이스 주요 기능
-
-*   **연결 관리**: `startButton`과 `stopButton`을 통해 사용자는 서버와의 WebRTC 연결을 시작하고 종료할 수 있습니다.
-*   **미디어 표시**: `botVideo` 엘리먼트를 통해 Simli 서비스 등에서 생성된 봇의 비디오 아바타를 표시하고, `botAudio` 엘리먼트를 통해 봇의 음성을 재생합니다.
-*   **마이크 제어**: `app.js` 내 `toggleMicrophone` 함수를 통해 사용자의 마이크 활성화/비활성화 상태를 제어합니다. 초기에는 마이크가 활성화되지만, 봇의 첫 발화가 완료된 후 사용자의 발화를 위해 다시 활성화되는 등의 로직이 포함될 수 있습니다. (코드상으로는 `rtviClient.on('trackStarted')`에서 로컬 마이크 트랙을 받으면 초기에 비활성화했다가, `rtviClient.on('botStoppedSpeaking')` 후 `firstBotUtteranceCompleted` 조건에 따라 활성화하는 로직이 존재)
-*   **레이턴시 표시**: STT, LLM, TTS, 전체 응답에 대한 현재 및 평균 레이턴시를 UI에 표시하여 성능을 모니터링할 수 있습니다 (`LatencyTracker` 클래스 활용).
-*   **인터럽트 처리**: 사용자가 봇이 말하는 도중에 말을 시작하면, 서버에서 인터럽트 신호를 보내 봇의 미디어 재생을 중단시킬 수 있습니다. `app.js`의 `handleUrgentMessage` 및 `stopAllMediaPlayback` 함수가 이를 처리합니다.
-
-### 전체 아키텍처와의 통합
-
-WebRTC 통신 및 클라이언트 인터페이스는 PipeChat\_server 아키텍처의 가장 앞단에서 사용자와 직접 상호작용하는 부분입니다.
-
-1.  **사용자 입력**: 클라이언트(`static/index.html`, `static/src/app.js`)는 사용자의 음성을 마이크를 통해 수집하고, WebRTC를 통해 암호화된 미디어 스트림으로 `server.py`에 설정된 `SmallWebRTCTransport`로 전송합니다.
-2.  **서버의 역할**: `server.py`는 WebRTC 시그널링을 중개하고, 각 클라이언트 연결에 대해 `SmallWebRTCTransport` 인스턴스를 생성합니다. 이 `transport`는 `run_bot.py`에 전달됩니다.
-3.  **봇 파이프라인 처리**: `run_bot.py`의 파이프라인은 `transport.input()`을 통해 사용자의 오디오 프레임을 수신합니다. 이 오디오는 STT 서비스를 거쳐 텍스트로 변환되고, LLM 서비스로 전달되어 응답 텍스트를 생성합니다. 생성된 텍스트는 TTS 서비스를 통해 음성 오디오 프레임으로 변환되며, Simli 서비스는 LLM 응답 또는 감정 분석 결과에 따라 비디오 프레임을 생성할 수 있습니다.
-4.  **사용자 출력**: 생성된 오디오 및 비디오 프레임은 `transport.output()`을 통해 다시 WebRTC 연결을 거쳐 클라이언트(`static/src/app.js`)로 전송됩니다. 클라이언트는 수신된 미디어를 `<audio>` 및 `<video>` 엘리먼트를 통해 재생합니다.
-5.  **제어 및 이벤트**: `RTVIProcessor` (서버 측)와 `RTVIClient` (클라이언트 측)는 WebRTC 데이터 채널 또는 별도의 메시징을 통해 `botReady`, `userStartedSpeaking`, 인터럽트 신호 등과 같은 제어 메시지 및 이벤트를 교환하여 보다 풍부한 상호작용을 지원합니다.
-
-이러한 통합을 통해 사용자는 웹 브라우저만으로 AI 봇과 실시간으로 음성 및 영상 대화를 나눌 수 있는 경험을 제공받게 됩니다.
+*   <p>MeloTTS README: <a href="https://github.com/donggyun112/tts_server/blob/main/MeloTTS/README.md" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">MeloTTS/README.md</a></p>
+*   <p>MeloTTS 설치 가이드: <a href="https://github.com/donggyun112/tts_server/blob/main/MeloTTS/docs/install.md" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">MeloTTS/docs/install.md</a></p>
+*   <p>MeloTTS 빠른 사용 가이드: <a href="https://github.com/donggyun112/tts_server/blob/main/MeloTTS/docs/quick_use.md" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">MeloTTS/docs/quick_use.md</a></p>
+*   <p>MeloTTS 학습 가이드: <a href="https://github.com/donggyun112/tts_server/blob/main/MeloTTS/docs/training.md" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">MeloTTS/docs/training.md</a></p>
+*   <p>MeloTTS WebUI: <a href="https://github.com/donggyun112/tts_server/blob/main/MeloTTS/melo/app.py" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">MeloTTS/melo/app.py</a></p>
+*   <p>MeloTTS CLI: <a href="https://github.com/donggyun112/tts_server/blob/main/MeloTTS/melo/main.py" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">MeloTTS/melo/main.py</a></p>
+*   <p>TTS 서버 메인: <a href="https://github.com/donggyun112/tts_server/blob/main/tts_server.py" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">tts_server.py</a></p>
+*   <p>TTS 어댑터: <a href="https://github.com/donggyun112/tts_server/blob/main/utils/tts.py" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">utils/tts.py</a></p>
 
 ---
 
 <a id='page-6'></a>
 
-## 디버깅 및 로깅
+## 설치 및 설정
 
 ### Related Files
 
-- `debug_tools/logging_processor.py`
+- `README.md`
+- `tts_server.py`
+- `MeloTTS/docs/install.md`
+- `MeloTTS/requirements.txt`
+- `pyproject.toml`
 
 ### Related Pages
 
-Related topics: [핵심 파이프라인 및 데이터 흐름](#page-2)
+Related topics: [프로젝트 개요](#page-1)
 
-## 디버깅 및 로깅
+## 설치 및 설정
 
-디버깅 및 로깅은 소프트웨어 개발 과정에서 오류를 찾아 수정하고, 시스템의 동작 상태를 추적 및 분석하기 위한 필수적인 활동입니다. PipeChat_server 프로젝트에서는 특히 실시간으로 음성, 텍스트, AI 모델 간의 상호작용이 복잡하게 이루어지므로, 각 단계에서의 데이터 흐름과 상태를 명확히 파악하는 것이 중요합니다.
+`tts_server`는 텍스트를 음성으로 변환하는 기능을 제공하는 서버 애플리케이션입니다. 이 서버는 MeloTTS 또는 KokoroTTS와 같은 다양한 TTS 모델 엔진을 백엔드로 활용할 수 있도록 설계되었습니다. 이 문서는 `tts_server`를 성공적으로 설치하고, 사용자의 환경에 맞게 설정을 구성하여 실행하는 전체 과정을 안내합니다.
 
-`debug_tools/logging_processor.py` 파일에 정의된 `LoggingProcessor`는 이러한 디버깅 및 로깅 기능을 수행하는 핵심 컴포넌트입니다.
+### 시스템 요구 사항
 
-<p>Sources: <a href="https://github.com/donggyun112/PipeChat_server/blob/main/debug_tools/logging_processor.py" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">debug_tools/logging_processor.py</a></p>
+*   Python 3.9 이상
+*   필수 Python 라이브러리: `pyzmq`, `loguru`, `numpy`, `soundfile` (TTS 어댑터에서 사용될 수 있음)
+*   선택한 TTS 엔진에 따른 추가 라이브러리:
+    *   **MeloTTS 사용 시**: `torch`, `torchaudio`, `transformers`, `MeCab`, `g2pkk`, `unidic` 등 (MeloTTS의 `requirements.txt` 참조)
+    *   **KokoroTTS 사용 시**: `onnxruntime`
+*   (선택 사항) Docker (MeloTTS를 Docker 환경에서 사용하거나 빌드할 경우)
 
-### `LoggingProcessor`의 목적 및 기능
+### 설치 단계
 
-`LoggingProcessor`는 `pipecat` 프레임워크의 `FrameProcessor`를 상속받아 구현된 클래스로, 파이프라인을 통과하는 다양한 데이터 프레임(Frame)을 감지하고 해당 프레임의 주요 정보를 로그로 기록하는 역할을 합니다. 이를 통해 개발자는 실시간으로 시스템 내부에서 어떤 데이터가 어떻게 처리되는지 확인할 수 있으며, 문제 발생 시 원인 파악을 용이하게 합니다.
+#### 1. 저장소 복제
 
-**주요 기능:**
+먼저 `tts_server` 저장소를 로컬 시스템으로 복제합니다.
 
-*   **프레임 감지 및 로깅:** STT (Speech-to-Text) 결과, LLM (Large Language Model) 메시지, TTS (Text-to-Speech) 입력 텍스트 등 다양한 종류의 프레임을 식별하고, 각 프레임의 핵심 내용을 로그로 출력합니다.
-*   **상세 정보 제공:** 프레임의 타입, 언어, 텍스트 내용, 역할(role) 등 디버깅에 유용한 상세 정보를 포함하여 기록합니다.
-*   **유연한 통합:** `pipecat` 파이프라인의 어느 지점에나 삽입하여 특정 구간의 데이터 흐름을 집중적으로 모니터링할 수 있습니다.
-*   **`loguru` 라이브러리 활용:** 로그 메시지 형식화, 레벨 관리(DEBUG, INFO 등) 등 고급 로깅 기능을 위해 `loguru` 라이브러리를 사용합니다.
-
-### 코드 예시
-
-다음은 `LoggingProcessor`가 STT 결과 프레임(`TranscriptionFrame`)과 LLM 메시지 프레임(`LLMMessagesFrame`)을 처리하는 부분의 코드 스니펫입니다.
-
-```python
-# debug_tools/logging_processor.py
-
-# ... (import 구문 생략) ...
-
-class LoggingProcessor(FrameProcessor):
-	# ... (생성자 및 초기화 메소드 생략) ...
-
-	async def process_frame(self, frame, direction: FrameDirection):
-		try:
-			logger.debug(f"{self.name}: Processing frame {type(frame).__name__}")
-			await super().process_frame(frame, direction)
-
-			if isinstance(frame, (InterimTranscriptionFrame, TranscriptionFrame)):
-				lang = getattr(frame.language, 'value', frame.language)
-				txt = getattr(frame, 'text', '')
-				logger.info(f"{self.name}: STT result → '{txt}', lang={lang}")
-
-			elif isinstance(frame, LLMMessagesFrame):
-				for msg in frame.messages:
-					role = msg.get('role')
-					content = (msg.get('content','') or '').replace("\n", " ")
-					preview = content if len(content)<=100 else content[:100]+'…'
-					logger.info(f"{self.name}: LLM {role} → {preview}")
-            # ... (다른 프레임 타입 처리 로직) ...
-			await self.push_frame(frame, direction)
-		# ... (예외 처리 생략) ...
+```bash
+git clone https://github.com/donggyun112/tts_server.git
+cd tts_server
 ```
 
-이 코드에서 볼 수 있듯이, `process_frame` 메소드는 입력된 `frame`의 타입에 따라 분기하여 해당 프레임의 정보를 `logger.info` 또는 `logger.debug`를 통해 기록합니다.
+MeloTTS를 사용하려는 경우, `tts_server` 프로젝트 내에 MeloTTS가 서브모듈로 포함되어 있거나 별도로 클론해야 할 수 있습니다. `MeloTTS/docs/install.md`는 `myshell-ai/MeloTTS` 저장소를 기준으로 설명하므로, `donggyun112/tts_server` 내의 `MeloTTS` 디렉토리가 해당 저장소의 복사본이거나 서브모듈인지 확인해야 합니다. 만약 `tts_server/MeloTTS`가 비어있거나 서브모듈이라면 초기화가 필요할 수 있습니다.
 
-### `LoggingProcessor` 작동 흐름
+#### 2. TTS 엔진별 설치 및 설정
 
-다음은 `LoggingProcessor`가 파이프라인 내에서 프레임을 처리하고 로깅하는 과정을 나타낸 Mermaid 다이어그램입니다.
+`tts_server.py`는 `--model` 인수를 통해 `melo` 또는 `kokoro` TTS 엔진을 선택할 수 있습니다. 선택한 엔진에 따라 다음 설치 과정을 진행합니다.
+
+##### 2.1 MeloTTS 설치 (`--model melo` 선택 시)
+
+`MeloTTS`를 사용하기 위해서는 관련 라이브러리 설치 및 필요 파일 다운로드가 필요합니다. `tts_server` 저장소 내의 `MeloTTS` 디렉토리에서 다음 작업을 수행합니다.
+
+<p>Sources: <a href="https://github.com/donggyun112/tts_server/blob/main/MeloTTS/docs/install.md" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">MeloTTS/docs/install.md</a></p>
+
+*   **Python 환경에 직접 설치 (Linux/macOS 권장)**:
+    ```bash
+    # tts_server/MeloTTS 디렉토리로 이동했다고 가정
+    cd MeloTTS
+    pip install -e .
+    python -m unidic download
+    cd .. # 다시 tts_server 프로젝트 루트로 복귀
+    ```
+    위 `pip install -e .` 명령어는 `MeloTTS/setup.py`를 실행하며, 이 과정에서 `MeloTTS/requirements.txt`에 명시된 의존성들이 설치됩니다. `python -m unidic download`는 일본어 형태소 분석기 MeCab에서 사용하는 사전인 UniDic을 다운로드합니다.
+
+*   **Docker를 사용한 설치**:
+    `MeloTTS/docs/install.md`에는 MeloTTS 자체를 Docker로 빌드하고 실행하는 방법도 안내되어 있습니다.
+    ```bash
+    # tts_server/MeloTTS 디렉토리로 이동했다고 가정
+    # docker build -t melotts .
+    # docker run -it -p 8888:8888 melotts
+    ```
+    단, `tts_server.py`는 기본적으로 로컬 Python 환경에 설치된 MeloTTS 라이브러리를 임포트하여 사용합니다. Docker로 MeloTTS를 실행하는 것은 주로 MeloTTS 자체의 WebUI를 사용하기 위함이며, `tts_server.py`와 직접 연동되지는 않습니다. `tts_server.py`에서 MeloTTS를 사용하려면 위 "Python 환경에 직접 설치" 방법을 따라야 합니다.
+
+##### 2.2 KokoroTTS 설정 (`--model kokoro` 선택 시)
+
+KokoroTTS를 사용하기 위해서는 미리 학습된 모델 파일과 음성 파일이 필요합니다. 이 파일들은 `tts_server.py` 실행 시 경로를 지정해주어야 합니다.
+
+<p>Sources: <a href="https://github.com/donggyun112/tts_server/blob/main/tts_server.py" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">tts_server.py</a></p>
+
+```python
+# tts_server.py의 KokoroTTSAdapter 초기화 부분 (참고용)
+# model_adapter = KokoroTTSAdapter(
+#     model_path=args.kokoro_model, # 예: "./KoKoro_models/kokoro-v1.0.onnx"
+#     voice_path=args.kokoro_voices # 예: "./KoKoro_models/voices-v1.0.bin"
+# )
+```
+KokoroTTS 모델 파일(`*.onnx`)과 음성 데이터 파일(`*.bin`)을 다운로드하여 적절한 위치에 저장하고, 서버 실행 시 `--kokoro-model`과 `--kokoro-voices` 인수를 통해 해당 파일들의 경로를 지정합니다.
+
+#### 3. `tts_server` 공통 의존성 설치
+
+`tts_server.py` 실행에 필요한 공통 라이브러리들을 설치합니다. `tts_server` 프로젝트 루트에 `requirements.txt` 파일이 있다면 해당 파일을 사용합니다.
+
+```bash
+# tts_server 프로젝트 루트 디렉토리에서 실행
+# pip install -r requirements.txt # 만약 requirements.txt가 있다면
+```
+만약 `pyproject.toml` 파일이 프로젝트 루트에 존재하고 `setuptools`나 `poetry`와 같은 빌드 시스템을 사용한다면, 다음 명령어로 설치할 수 있습니다.
+```bash
+# pip install .
+```
+주요 공통 의존성으로는 `pyzmq` (ZMQ 메시징용), `loguru` (로깅용), `numpy` (데이터 처리용) 등이 있습니다.
+
+### 서버 실행
+
+모든 설치와 설정이 완료되면 `tts_server.py`를 실행하여 TTS 서버를 시작할 수 있습니다.
+
+<p>Sources: <a href="https://github.com/donggyun112/tts_server/blob/main/tts_server.py" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">tts_server.py</a></p>
+
+#### 실행 명령어 예시
+
+*   **MeloTTS 사용 시 (CPU 사용)**:
+    ```bash
+    python tts_server.py --model melo --device cpu
+    ```
+    GPU를 사용하려면 `--device cuda` (NVIDIA GPU) 또는 `--device mps` (Apple Silicon)로 변경합니다. `--device auto` (MeloTTS 기본값) 옵션은 사용 가능한 GPU를 자동 감지합니다.
+
+*   **KokoroTTS 사용 시**:
+    ```bash
+    python tts_server.py --model kokoro \
+                         --kokoro-model ./KoKoro_models/kokoro-v1.0.onnx \
+                         --kokoro-voices ./KoKoro_models/voices-v1.0.bin
+    ```
+    경로는 실제 파일 위치에 맞게 수정해야 합니다.
+
+*   **기타 주요 옵션**:
+    *   `--workers <N>`: 오디오 생성 작업을 처리할 워커 스레드 수 (기본값: 4).
+    *   `--debug`: 디버그 레벨 로깅 활성화.
+
+서버가 성공적으로 시작되면 ZMQ 소켓을 통해 클라이언트의 TTS 요청을 받을 준비가 됩니다. (기본 명령 포트: `tcp://*:5555`, 오디오 데이터 포트: `tcp://*:5556`)
+
+### 설정 및 실행 흐름도
+
+다음은 `tts_server` 설치 및 실행까지의 과정을 나타내는 흐름도입니다.
 
 ```mermaid
 graph TD
-    A[Pipeline으로부터 Frame 수신] --> B{Frame 타입 확인};
-    B -- InterimTranscriptionFrame / TranscriptionFrame --> C[STT 결과 로깅];
-    B -- LLMMessagesFrame --> D[LLM 메시지 로깅];
-    B -- OpenAILLMContextFrame --> E[LLM 컨텍스트 로깅];
-    B -- LLMTextFrame / TextFrame --> F[LLM/텍스트 청크 로깅];
-    B -- 기타 Frame 타입 --> G[일반 Frame 정보 로깅];
-    C --> H[Loguru 통해 로그 기록];
-    D --> H;
-    E --> H;
-    F --> H;
-    G --> H;
-    H --> I[처리된 Frame을 다음 Processor로 전달];
+    Start([tts_server 설정 시작]) --> CloneRepo[저장소 복제: tts_server];
+    CloneRepo --> ChooseModel{사용할 TTS 모델 선택};
+
+    ChooseModel -- MeloTTS --> SetupMelo[MeloTTS 설정];
+    SetupMelo --> MeloInstall[MeloTTS 라이브러리 설치 (pip install -e .)];
+    MeloInstall --> MeloDeps[MeloTTS 의존성 설치 (unidic 등)];
+    MeloDeps --> ServerCommonDeps[tts_server 공통 의존성 설치];
+
+    ChooseModel -- KokoroTTS --> SetupKokoro[KokoroTTS 설정];
+    SetupKokoro --> KokoroModelFiles[Kokoro 모델/음성 파일 준비];
+    KokoroModelFiles --> ServerCommonDeps;
+
+    ServerCommonDeps --> ConfigureRun[tts_server.py 실행 옵션 구성];
+    ConfigureRun --> RunServer[서버 실행];
 ```
 
-### 아키텍처 통합
+### 파일별 역할 및 통합
 
-`LoggingProcessor`는 `pipecat` 파이프라인 아키텍처 내에서 독립적인 처리 모듈로 작동합니다. `run_bot.py`와 같은 메인 실행 스크립트에서 파이프라인을 구성할 때, `LoggingProcessor` 인스턴스를 생성하여 파이프라인의 원하는 위치에 추가할 수 있습니다.
+*   **`README.md`** (프로젝트 루트):
+    *   프로젝트의 전반적인 소개, 주요 기능, 그리고 이 "설치 및 설정" 문서와 같은 상세 문서로의 링크를 제공하는 역할을 합니다. 사용자가 프로젝트를 처음 접했을 때 가장 먼저 보게 되는 안내서입니다.
+    <p>Sources: <a href="https://github.com/donggyun112/tts_server/blob/main/README.md" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">README.md</a></p>
 
-예를 들어, STT 처리 직후의 결과를 확인하고 싶다면 STT 서비스 다음에 `LoggingProcessor`를 위치시킬 수 있습니다.
+*   **`tts_server.py`**:
+    *   이 저장소의 핵심 실행 파일로, TTS 요청을 받아 처리하는 ZMQ 기반 서버입니다.
+    *   명령줄 인수를 통해 사용할 TTS 모델(MeloTTS 또는 KokoroTTS), 장치, 모델 경로 등 다양한 설정을 지정받습니다.
+    *   내부적으로 `MeloTTSAdapter` 또는 `KokoroTTSAdapter`를 사용하여 실제 음성 합성을 수행하며, 생성된 오디오 데이터를 클라이언트에 스트리밍합니다.
+    *   설치된 TTS 엔진 라이브러리(예: MeloTTS)를 Python 모듈로서 가져와 사용합니다.
+    <p>Sources: <a href="https://github.com/donggyun112/tts_server/blob/main/tts_server.py" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">tts_server.py</a></p>
 
-```python
-# run_bot.py 예시 (실제 코드와 다를 수 있음)
-# ...
-# logger_proc = LoggingProcessor() # LoggingProcessor 인스턴스 생성
-# ...
-# pipeline = Pipeline([
-#     transport.input(),
-#     rtvi,
-#     stt,
-#     logger_proc,  # STT 처리 후 로깅
-#     agg.user(),
-#     llm,
-#     # logger_proc, # LLM 입력 전 로깅 등 원하는 위치에 추가 가능
-#     tts,
-#     simli,
-#     transport.output(),
-#     agg.assistant()
-# ])
-# ...
-```
+*   **`MeloTTS/docs/install.md`**:
+    *   MeloTTS 라이브러리 자체를 설치하고 사용하는 방법에 대한 상세 가이드입니다.
+    *   `tts_server.py`가 MeloTTS를 백엔드로 사용하기 위해서는 이 문서에 설명된 대로 MeloTTS가 사용자의 Python 환경에 올바르게 설치되어 있어야 합니다. `tts_server.py`는 이 설치된 MeloTTS를 `from melo.api import TTS`와 같이 임포트하여 활용합니다.
+    <p>Sources: <a href="https://github.com/donggyun112/tts_server/blob/main/MeloTTS/docs/install.md" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">MeloTTS/docs/install.md</a></p>
 
-`run_bot.py` 파일 내에서는 `logger_proc = LoggingProcessor()` (line 29)로 인스턴스가 생성되지만, 현재 메인 파이프라인(line 132 부근)에 명시적으로 추가되어 있지는 않습니다. 디버깅 필요시, 위 예시처럼 파이프라인 배열의 적절한 위치에 `logger_proc`를 삽입하여 특정 단계의 데이터 흐름을 상세히 로깅할 수 있습니다.
+*   **`MeloTTS/requirements.txt`** (MeloTTS 라이브러리 내):
+    *   MeloTTS 라이브러리가 정상적으로 작동하기 위해 필요한 Python 패키지들의 목록입니다.
+    *   `MeloTTS` 디렉토리 내에서 `pip install -e .` 또는 `pip install -r requirements.txt` 명령을 실행할 때 참조되어 해당 의존성들이 설치됩니다.
+    *   `tts_server`가 MeloTTS를 사용한다면, 이 파일에 명시된 패키지들이 간접적으로 `tts_server`의 전체 의존성 집합에 포함됩니다.
 
-이러한 방식으로 `LoggingProcessor`는 시스템의 투명성을 높이고, 개발자가 각 컴포넌트의 입력과 출력을 명확하게 이해하여 디버깅 효율을 크게 향상시키는 데 기여합니다.
+*   **`pyproject.toml`** (프로젝트 루트, 존재한다면):
+    *   현대적인 Python 프로젝트에서 빌드 시스템 설정(예: `setuptools`, `poetry`), 프로젝트 메타데이터, 그리고 프로젝트 레벨의 직접적인 의존성을 정의하는 파일입니다.
+    *   만약 `tts_server` 프로젝트가 이 파일을 사용하여 패키징된다면, `pip install .` 명령을 프로젝트 루트에서 실행할 때 이 파일의 내용을 참조하여 빌드 및 설치가 진행됩니다.
+    *   `tts_server.py`를 직접 실행하는 방식 외에, `tts_server`를 하나의 설치 가능한 패키지로 관리하고자 할 때 중요한 역할을 합니다.
+
+이러한 파일들은 각자의 역할을 수행하며, `tts_server`가 성공적으로 설치되고 다양한 TTS 엔진을 활용하여 음성 합성 서비스를 제공할 수 있도록 유기적으로 통합됩니다. 사용자는 이 설치 및 설정 가이드를 따라 자신의 환경에 맞게 서버를 구성하고 실행할 수 있습니다.
 
 ---
 
