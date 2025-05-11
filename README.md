@@ -1177,18 +1177,18 @@ server.start()
 
 ```mermaid
 graph TD
-    A([입력 텍스트]) --> B{사용 방법 선택}
-    B -->|Python API| C[TTS 객체 생성<br/>(melo.api.TTS)]
-    C --> D[tts_to_file() / tts_to_bytesio()<br/>호출]
+    A([입력 텍스트]) --> B{사용 방법}
+    B -->|Python API| C[TTS 객체 생성]
+    C --> D[tts_to_file 호출]
     D --> E([생성된 오디오])
-    B -->|CLI| F[melo 명령어 실행<br/>(melo.main)]
-    F --> G[내부적으로 TTS API 사용]
+    B -->|CLI| F[melo 명령어 실행]
+    F --> G[TTS API 사용]
     G --> E
-    B -->|WebUI| H[웹 인터페이스 사용<br/>(melo.app)]
-    H --> I[내부적으로 TTS API 사용]
+    B -->|WebUI| H[웹 인터페이스]
+    H --> I[TTS API 사용]
     I --> E
-    B -->|Server 연동| J[MeloTTSAdapter 사용<br/>(utils.tts)]
-    J --> K[내부적으로 TTS API 사용]
+    B -->|Server| J[MeloTTSAdapter]
+    J --> K[TTS API 사용]
     K --> E
 ```
 
