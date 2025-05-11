@@ -1339,20 +1339,20 @@ KokoroTTS 모델 파일(`*.onnx`)과 음성 데이터 파일(`*.bin`)을 다운�
 
 ```mermaid
 graph TD
-    Start([tts_server 설정 시작]) --> CloneRepo[저장소 복제: tts_server];
-    CloneRepo --> ChooseModel{사용할 TTS 모델 선택};
-
-    ChooseModel -- MeloTTS --> SetupMelo[MeloTTS 설정];
-    SetupMelo --> MeloInstall[MeloTTS 라이브러리 설치 (pip install -e .)];
-    MeloInstall --> MeloDeps[MeloTTS 의존성 설치 (unidic 등)];
-    MeloDeps --> ServerCommonDeps[tts_server 공통 의존성 설치];
-
-    ChooseModel -- KokoroTTS --> SetupKokoro[KokoroTTS 설정];
-    SetupKokoro --> KokoroModelFiles[Kokoro 모델/음성 파일 준비];
-    KokoroModelFiles --> ServerCommonDeps;
-
-    ServerCommonDeps --> ConfigureRun[tts_server.py 실행 옵션 구성];
-    ConfigureRun --> RunServer[서버 실행];
+    Start([시작]) --> CloneRepo[저장소 복제]
+    CloneRepo --> ChooseModel{모델 선택}
+    
+    ChooseModel -->|MeloTTS| SetupMelo[Melo 설정]
+    SetupMelo --> MeloInstall[Melo 설치]
+    MeloInstall --> MeloDeps[의존성 설치]
+    MeloDeps --> ServerCommonDeps[공통 의존성]
+    
+    ChooseModel -->|KokoroTTS| SetupKokoro[Kokoro 설정]
+    SetupKokoro --> KokoroModelFiles[모델 파일 준비]
+    KokoroModelFiles --> ServerCommonDeps
+    
+    ServerCommonDeps --> ConfigureRun[실행 옵션 구성]
+    ConfigureRun --> RunServer[서버 실행]
 ```
 
 ### 파일별 역할 및 통합
