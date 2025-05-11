@@ -77,18 +77,18 @@ Related topics: [서버 아키텍처](#page-2), [TTS 모델 연동](#page-3), [�
 
 *   **`tts_server.py` 내부 요청 처리 흐름도:**
     ```mermaid
-    graph TD
-        Client([클라이언트]) -->|1. TTS 요청 (JSON, ZMQ REQ)| CmdSock[tts_server: cmd_sock (REP)]
-        CmdSock -->|2. 요청 분석| ProcessCmd[tts_server: _process_cmd()]
-        ProcessCmd -->|3. 작업 스레드에 할당| Executor[ThreadPoolExecutor]
-        Executor -->|4. 작업 실행| Worker[tts_server: _worker()]
-        Worker -->|5. 인사말 생성 (필요시)| Greeting[_get_prepared_greeting_xx()]
-        Worker -->|6. TTS 모델 어댑터 호출| ModelAdapter[TTSModelAdapter: generate_audio()]
-        ModelAdapter -->|7. 음성 데이터 반환 (numpy.ndarray)| Worker
-        Worker -->|8. 오디오 변환/청킹 후 큐에 추가| AudioQueue[queue.Queue]
-        Sender[tts_server: _sender()] -->|9. 큐에서 청크 가져오기| AudioQueue
-        Sender -->|10. 오디오 데이터 전송 (ZMQ PUSH)| AudioSock[tts_server: audio_sock (PUSH)]
-        AudioSock -->|11. 오디오 스트림| Client
+      graph TD
+          Client([클라이언트]) -->|1. TTS 요청 (JSON, ZMQ REQ)| CmdSock[tts_server: cmd_sock (REP)]
+          CmdSock -->|2. 요청 분석| ProcessCmd[tts_server: process_cmd()]
+          ProcessCmd -->|3. 작업 스레드에 할당| Executor[ThreadPoolExecutor]
+          Executor -->|4. 작업 실행| Worker[tts_server: _worker()]
+          Worker -->|5. 인사말 생성 (필요시)| Greeting[_get_prepared_greeting_xx()]
+          Worker -->|6. TTS 모델 어댑터 호출| ModelAdapter[TTSModelAdapter: generate_audio()]
+          ModelAdapter -->|7. 음성 데이터 반환 (numpy.ndarray)| Worker
+          Worker -->|8. 오디오 변환/청킹 후 큐에 추가| AudioQueue[queue.Queue]
+          Sender[tts_server: _sender()] -->|9. 큐에서 청크 가져오기| AudioQueue
+          Sender -->|10. 오디오 데이터 전송 (ZMQ PUSH)| AudioSock[tts_server: audio_sock (PUSH)]
+          AudioSock -->|11. 오디오 스트림| Client
     ```
 <p>Sources: <a href="https://github.com/donggyun112/tts_server/blob/main/tts_server.py" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">tts_server.py</a></p>
 
