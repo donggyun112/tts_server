@@ -155,18 +155,6 @@ MeloTTS는 MIT와 MyShell.ai에서 개발한 고품질 다국어 텍스트 음�
     ```
     이러한 구조를 통해 `tts_server`는 다양한 TTS 엔진을 유연하게 통합하고, 클라이언트에게 일관된 인터페이스로 TTS 서비스를 제공할 수 있습니다.
 
-## 5. `README.md` (루트 저장소)
-
-루트 저장소의 `README.md` 파일은 `tts_server` 프로젝트의 전반적인 소개, 설치 방법, 실행 방법, 그리고 기본적인 사용 예시를 제공하는 역할을 합니다. (주: 현재 분석 컨텍스트에 해당 파일의 구체적인 내용이 없어 일반적인 역할을 기술합니다.)
-
-일반적으로 이 파일에는 다음과 같은 정보가 포함될 것으로 예상됩니다:
-*   프로젝트의 목적 및 주요 기능 요약.
-*   프로젝트 실행에 필요한 사전 요구사항 및 의존성 설치 안내 (예: Python 버전, ZMQ, 특정 TTS 라이브러리 등).
-*   서버 실행 명령어 예시 (예: `python tts_server.py --model melo --device cpu`).
-*   지원하는 TTS 모델 및 관련 설정 옵션에 대한 설명.
-*   간단한 클라이언트 연동 예시 코드 또는 테스트 방법 안내.
-<p>Sources: <a href="https://github.com/donggyun112/tts_server/blob/main/README.md" target="_blank" rel="noopener noreferrer" class="mb-1 mr-1 inline-flex items-stretch font-mono text-xs !no-underline">README.md</a></p>
-
 ---
 
 <a id='page-2'></a>
