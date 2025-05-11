@@ -892,7 +892,7 @@ sequenceDiagram
     Worker->>Sender: 작업 완료 신호 (None)를 오디오 큐에 추가
     deactivate Worker
 
-    activate Sender # 이미 활성화되어 있을 수 있음, 큐에서 아이템 가져오기 시작
+    activate Sender
     loop 오디오 큐에 아이템이 있는 동안 (또는 완료/오류 신호까지)
         Sender->>AudioSock: 오디오 데이터/신호 전송 (_send_audio 호출)
         activate AudioSock
