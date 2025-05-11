@@ -857,55 +857,55 @@ sequenceDiagram
     participant Sender as "전송 스레드 (_sender)"
     participant TTSAdapter as "TTS 모델 어댑터"
 
-    Client->>CmdSock: TTS 생성 요청 (JSON: command="generate", job_id, text, ...)
+    Client->>CmdSock: TTS 생성 요청 (JSON)
     activate CmdSock
     CmdSock->>ServerCore: _process_cmd(요청) 호출
     activate ServerCore
-    CmdSock-->>Client: 요청 시작됨 응답 (JSON: status="started")
+    CmdSock-->>Client: 요청 시작됨 응답
     deactivate CmdSock
 
-    ServerCore->>Sender: 전송 스레드 시작 (job_id, 오디오 큐)
+    ServerCore->>Sender: 전송 스레드 시작
     activate Sender
-    ServerCore->>Worker: 오디오 생성 작업 할당 (요청, 취소 이벤트, 오디오 큐, 인사말 여부)
+    ServerCore->>Worker: 오디오 생성 작업 할당
     deactivate ServerCore
     activate Worker
 
-    Worker->>AudioSock: 메타데이터 전송 (_send_audio 호출)
+    Worker->>AudioSock: 메타데이터 전송
     activate AudioSock
-    AudioSock-->>Client: 메타데이터 (job_id, b"meta", JSON)
+    AudioSock-->>Client: 메타데이터
     deactivate AudioSock
     
     opt 인사말 재생 조건 충족 시
         Worker->>Worker: _get_prepared_greeting_xx() 호출
-        Worker->>Sender: 준비된 인사말 청크를 오디오 큐에 추가 (_send_prepared_audio)
+        Worker->>Sender: 준비된 인사말 청크를 큐에 추가
     end
 
-    Worker->>TTSAdapter: generate_audio(text, voice, speed, ...) 호출
+    Worker->>TTSAdapter: generate_audio() 호출
     activate TTSAdapter
-    TTSAdapter-->>Worker: 생성된 오디오 데이터 (numpy array), 실제 샘플링 레이트
+    TTSAdapter-->>Worker: 생성된 오디오 데이터
     deactivate TTSAdapter
 
-    Worker->>Worker: 오디오 처리 (리샘플링, int16 변환, 청킹)
+    Worker->>Worker: 오디오 처리
     loop 각 오디오 청크에 대해
-        Worker->>Sender: 오디오 청크를 오디오 큐에 추가
+        Worker->>Sender: 오디오 청크를 큐에 추가
     end
-    Worker->>Sender: 작업 완료 신호 (None)를 오디오 큐에 추가
+    Worker->>Sender: 작업 완료 신호 추가
     deactivate Worker
 
-    activate Sender
-    loop 오디오 큐에 아이템이 있는 동안 (또는 완료/오류 신호까지)
-        Sender->>AudioSock: 오디오 데이터/신호 전송 (_send_audio 호출)
+    loop 큐에 아이템이 있는 동안
+        Sender->>AudioSock: 오디오 데이터/신호 전송
         activate AudioSock
         alt 오디오 데이터
-            AudioSock-->>Client: 오디오 청크 (job_id, b"data", bytes)
+            AudioSock-->>Client: 오디오 청크
         else 종료 신호
-            AudioSock-->>Client: 종료 신호 (job_id, b"end", "completed" or "interrupted")
+            AudioSock-->>Client: 종료 신호
         else 오류 신호
-            AudioSock-->>Client: 오류 신호 (job_id, b"error", "error message")
+            AudioSock-->>Client: 오류 신호
         end
         deactivate AudioSock
     end
     deactivate Sender
+```
 
 
 ---
