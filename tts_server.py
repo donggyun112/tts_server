@@ -37,11 +37,21 @@ class UnifiedTTSServer:
 	
 	def initialize(self) -> bool:
 		"""서버 초기화 (모델 초기화 포함)"""
-		if not self.model_adapter.initialize():
+		print("Initializing server...")
+		try:
+			if not self.model_adapter.initialize():
+				print("Model adapter initialization failed!")
+				return False
+			print("Model adapter initialized successfully")
+			
+			self.model_adapter.warmup()
+			print("Model warmup completed")
+			return True
+		except Exception as e:
+			print(f"Initialization error: {e}")
+			import traceback
+			traceback.print_exc()
 			return False
-		
-		self.model_adapter.warmup()
-		return True
 	
 	def _get_prepared_greeting_kr(self, target_sr: int) -> np.ndarray:
 		"""한국어 준비된 인사말 오디오 가져오기"""
@@ -150,6 +160,7 @@ class UnifiedTTSServer:
 					q.put(("end", "interrupted"))
 					return
 				q.put(chunk.tobytes())
+			q.put(audio_int16.tobytes())
 			
 			# 작업 완료 신호
 			q.put(None)
@@ -261,6 +272,7 @@ class UnifiedTTSServer:
 						msg = self.cmd_sock.recv_json()
 						self._process_cmd(msg)
 					except Exception:
+						print("Error processing command")
 						try:
 							self.cmd_sock.send_json({
 								"status": "error",
@@ -269,8 +281,10 @@ class UnifiedTTSServer:
 						except:
 							pass
 		except KeyboardInterrupt:
+			print("Server interrupted by user")
 			pass
-		except Exception:
+		except Exception as e:
+			print("Server error:", str(e))
 			pass
 		finally:
 			self._cleanup()
@@ -331,4 +345,5 @@ if __name__ == "__main__":
 	
 	# 서버 생성 및 시작
 	server = UnifiedTTSServer(model_adapter=model_adapter, max_workers=args.workers)
+	print("Starting TTS server...")
 	server.start()

@@ -3,6 +3,9 @@ from typing import Dict, Any, Tuple, List
 import numpy as np
 from utils.audio_converter import AudioConverter
 import time
+from MeloTTS.melo.utils import get_text_for_tts_infer
+from MeloTTS.melo.api import TTS
+import re
 
 class TTSModelAdapter(ABC):
     
@@ -86,7 +89,7 @@ class MeloTTSAdapter(TTSModelAdapter):
         """모델 초기화"""
         try:
             # MeloTTS 라이브러리 임포트
-            from melo.api import TTS
+            
             
             # 기본 모델(KR) 로드
             tts = TTS(language="KR", device=self.device)
@@ -107,7 +110,7 @@ class MeloTTSAdapter(TTSModelAdapter):
     def warmup(self) -> bool:
         """모델 워밍업"""
         try:
-            from melo.utils import get_text_for_tts_infer
+            
             import torch
             
             # 각 로드된 모델마다 워밍업 수행
@@ -164,7 +167,6 @@ class MeloTTSAdapter(TTSModelAdapter):
             return True
             
         try:
-            from melo.api import TTS
             
             tts = TTS(language=lang, device=self.device)
             self.models[lang] = tts
@@ -192,6 +194,8 @@ class MeloTTSAdapter(TTSModelAdapter):
     ) -> Tuple[np.ndarray, int]:
         """텍스트에서 오디오 생성 (전체 텍스트)"""
         try:
+            # 특수 문자 제거 및 공백 정리
+            text = text.strip()
             # 문장 분리
             sentences = self.split_sentences(text, voice)
             if not sentences:
@@ -452,6 +456,7 @@ class KokoroTTSAdapter(TTSModelAdapter):
     ) -> Tuple[np.ndarray, int]:
         """텍스트에서 오디오 생성 (전체 텍스트)"""
         try:
+            text = self.clean_markdown_for_tts(text)
             # 기본 구현은 단일 문장으로 처리하지만, 실제로는 각 문장별로 처리 권장
             sentences = self.split_sentences(text, "ko")
             combined_audio = np.array([], dtype=np.float32)
@@ -471,6 +476,69 @@ class KokoroTTSAdapter(TTSModelAdapter):
         except Exception:
             # 오류 발생 시 빈 오디오 반환
             return np.array([], dtype=np.float32), target_sr
+        
+
+    def clean_markdown_for_tts(self, text: str) -> str:
+        """
+        TTS용 마크다운 특수문자 제거 및 정리
+        마크다운 문법을 자연스러운 텍스트로 변환
+        """
+        if not text:
+            return ""
+        
+        # 1. 코드 블록 제거 (```코드```)
+        text = re.sub(r'```[\s\S]*?```', '', text)
+        
+        # 2. 인라인 코드 제거 (`코드`)
+        text = re.sub(r'`([^`]+)`', r'\1', text)
+        
+        # 3. 링크 문법 처리 [텍스트](URL) -> 텍스트만 남김
+        text = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', text)
+        
+        # 4. 이미지 링크 제거 ![alt](URL)
+        text = re.sub(r'!\[[^\]]*\]\([^)]+\)', '', text)
+        
+        # 5. 강조 문법 제거 **텍스트**, *텍스트*
+        text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)  # **굵게**
+        text = re.sub(r'\*([^*]+)\*', r'\1', text)      # *기울임*
+        text = re.sub(r'__([^_]+)__', r'\1', text)      # __굵게__
+        text = re.sub(r'_([^_]+)_', r'\1', text)        # _기울임_
+        
+        # 6. 헤더 제거 (# ## ### ...)
+        text = re.sub(r'^#{1,6}\s*', '', text, flags=re.MULTILINE)
+        
+        # 7. 순서 있는 리스트 (1. 2. 3. ...)
+        text = re.sub(r'^\s*\d+\.\s*', '', text, flags=re.MULTILINE)
+        
+        # 8. 순서 없는 리스트 (- * +)
+        text = re.sub(r'^\s*[-*+]\s*', '', text, flags=re.MULTILINE)
+        
+        # 9. 인용문 (> 텍스트)
+        text = re.sub(r'^\s*>\s*', '', text, flags=re.MULTILINE)
+        
+        # 10. 수평선 제거 (--- *** ___)
+        text = re.sub(r'^[-*_]{3,}\s*$', '', text, flags=re.MULTILINE)
+        
+        # 11. 테이블 구분자 제거 (|)
+        text = re.sub(r'\|', ' ', text)
+        
+        # 12. 남은 특수문자들 제거/변환
+        # 대괄호, 중괄호 제거
+        text = re.sub(r'[\[\]{}]', '', text)
+        
+        # 백슬래시 이스케이프 제거
+        text = re.sub(r'\\(.)', r'\1', text)
+        
+        # 13. 여러 공백을 하나로 통합
+        text = re.sub(r'\s+', ' ', text)
+        
+        # 14. 여러 줄바꿈을 하나로 통합
+        text = re.sub(r'\n\s*\n', '\n', text)
+        
+        # 15. 앞뒤 공백 제거
+        text = text.strip()
+        
+        return text
     
     def generate_audio_by_sentence(
         self,
